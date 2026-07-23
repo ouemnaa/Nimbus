@@ -32,8 +32,10 @@ export default function ArchitectureComponents({ components }: ArchitectureCompo
       {Object.entries(groupedByCategory).map(([category, items]) => (
         <div key={category}>
           <div className="flex items-center gap-2 mb-3">
-            {categoryIcons[category]}
-            <h3 className="text-sm font-semibold text-foreground">{category}</h3>
+            {categoryIcons[category] || <Cloud className="h-4 w-4" />}
+            <h3 className="text-sm font-semibold text-foreground">
+              {category.replace(/_/g, " ")}
+            </h3>
           </div>
           <div className="space-y-3">
             {items.map((component) => (
@@ -41,18 +43,20 @@ export default function ArchitectureComponents({ components }: ArchitectureCompo
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h4 className="font-medium text-sm text-foreground">{component.name}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">{component.type}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {component.provider_type || component.type || "Cloud resource"}
+                    </p>
                     <p className="text-sm text-muted-foreground mt-2">{component.purpose}</p>
                   </div>
                   <div className="text-right">
                     <span
                       className={`text-xs px-2 py-1 rounded ${
-                        component.scope === "public"
+                        component.scope.toLowerCase().includes("public")
                           ? "bg-gold-soft/10 text-gold-cloud"
                           : "bg-gray-500/10 text-gray-400"
                       }`}
                     >
-                      {component.scope}
+                      {component.scope.replace(/_/g, " ").toLowerCase()}
                     </span>
                   </div>
                 </div>
@@ -64,4 +68,3 @@ export default function ArchitectureComponents({ components }: ArchitectureCompo
     </div>
   );
 }
-

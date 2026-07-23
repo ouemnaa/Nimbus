@@ -12,14 +12,26 @@ export default function ArchitectureDecisions({ decisions }: ArchitectureDecisio
 
   return (
     <div className="space-y-3">
-      {decisions.map((decision) => (
+      {decisions.map((decision, decisionIndex) => {
+        const decisionId = decision.id || `decision-${decisionIndex}`;
+        const alternatives =
+          decision.alternatives ||
+          decision.alternatives_considered?.map((alternative) => ({
+            name: alternative.option,
+            pros: alternative.advantages,
+            cons: alternative.disadvantages,
+            reason_not_selected: alternative.reason_not_selected,
+          })) ||
+          [];
+
+        return (
         <Card
-          key={decision.id}
+          key={decisionId}
           className="bg-background border-border overflow-hidden"
         >
           <button
             onClick={() =>
-              setExpandedId(expandedId === decision.id ? null : decision.id)
+              setExpandedId(expandedId === decisionId ? null : decisionId)
             }
             className="w-full p-4 flex items-center justify-between hover:bg-accent/5 transition-colors"
           >
@@ -28,12 +40,12 @@ export default function ArchitectureDecisions({ decisions }: ArchitectureDecisio
             </h3>
             <ChevronDown
               className={`w-4 h-4 text-muted-foreground transition-transform ${
-                expandedId === decision.id ? "rotate-180" : ""
+                expandedId === decisionId ? "rotate-180" : ""
               }`}
             />
           </button>
 
-          {expandedId === decision.id && (
+          {expandedId === decisionId && (
             <div className="px-4 pb-4 border-t border-border pt-4 space-y-4">
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -47,7 +59,7 @@ export default function ArchitectureDecisions({ decisions }: ArchitectureDecisio
                   Alternatives Considered
                 </p>
                 <div className="space-y-3 mt-2">
-                  {decision.alternatives.map((alt, idx) => (
+                  {alternatives.map((alt, idx) => (
                     <div key={idx} className="bg-card/50 p-3 rounded">
                       <p className="font-medium text-sm text-foreground">{alt.name}</p>
                       <div className="mt-2 space-y-1">
@@ -69,8 +81,8 @@ export default function ArchitectureDecisions({ decisions }: ArchitectureDecisio
             </div>
           )}
         </Card>
-      ))}
+        );
+      })}
     </div>
   );
 }
-

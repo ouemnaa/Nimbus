@@ -1,4 +1,8 @@
-export type ArchitectureStatus = "READY_FOR_REVIEW" | "APPROVED" | "NEEDS_CLARIFICATION";
+export type ArchitectureStatus =
+  | "READY_FOR_REVIEW"
+  | "APPROVED"
+  | "NEEDS_CLARIFICATION"
+  | "UNSUPPORTED";
 export type Environment = "development" | "staging" | "production";
 export type BudgetPreference = "MINIMIZE_COST" | "BALANCED" | "PERFORMANCE_FIRST";
 export type AvailabilityRequirement = "STANDARD" | "HIGH" | "CRITICAL";
@@ -6,30 +10,40 @@ export type CloudProvider = "AWS";
 
 export interface RequirementContext {
   environment: Environment;
-  budgetPreference: BudgetPreference;
+  budget_preference: string;
   cloud: CloudProvider;
-  region: string;
+  region?: string;
 }
 
 export interface ArchitectureComponent {
   id: string;
   name: string;
-  type: string;
+  type?: string;
+  provider_type?: string;
   category: string;
   purpose: string;
-  scope: "public" | "private";
+  scope: string;
   configuration?: Record<string, unknown>;
   dependencies?: string[];
+  depends_on?: string[];
+  diagram_visibility?: string;
 }
 
 export interface ArchitectureDecision {
-  id: string;
+  id?: string;
   title: string;
+  decision?: string;
   rationale: string;
-  alternatives: Array<{
+  alternatives?: Array<{
     name: string;
     pros: string[];
     cons: string[];
+    reason_not_selected: string;
+  }>;
+  alternatives_considered?: Array<{
+    option: string;
+    advantages: string[];
+    disadvantages: string[];
     reason_not_selected: string;
   }>;
 }
@@ -44,7 +58,7 @@ export interface ArchitectureScore {
 export interface CanonicalArchitecture {
   schema_version: string;
   architecture_id: string;
-  architecture_version: number;
+  architecture_version: number | string;
   status: ArchitectureStatus;
   title: string;
   requirement_summary: {
@@ -55,23 +69,27 @@ export interface CanonicalArchitecture {
     functional_requirements: string[];
     non_functional_requirements: string[];
     constraints: string[];
-    budget_preference: BudgetPreference;
-    availability_requirement: AvailabilityRequirement;
+    budget_preference?: string;
+    availability_requirement?: string;
   };
   cloud: {
     provider: CloudProvider;
     region: string;
     region_rationale: string;
   };
-  solution: {
+  solution: string | {
     summary: string;
     architecture_pattern: string;
   };
   resources: ArchitectureComponent[];
   relationships: Array<{
-    source: string;
-    target: string;
-    type: string;
+    source?: string;
+    target?: string;
+    type?: string;
+    source_id?: string;
+    target_id?: string;
+    relationship_type?: string;
+    label?: string;
   }>;
   decisions: ArchitectureDecision[];
   security_considerations: string[];
@@ -82,7 +100,10 @@ export interface CanonicalArchitecture {
   assumptions: string[];
   open_questions: string[];
   risks: Array<{
-    risk: string;
+    risk?: string;
+    title?: string;
+    description?: string;
+    severity?: string;
     mitigation: string;
   }>;
   limitations: string[];
@@ -110,7 +131,11 @@ export interface AnalyzeArchitectureRequest {
 }
 
 export interface AnalyzeArchitectureResponse {
-  projectId: string;
   architecture: CanonicalArchitecture;
+  report_markdown: string;
+  metadata: {
+    provider: string;
+    model: string;
+    generation_duration_ms: number;
+  };
 }
-

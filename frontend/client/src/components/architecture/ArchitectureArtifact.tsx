@@ -23,6 +23,11 @@ interface ArchitectureArtifactProps {
   status: ArchitectureStatusType;
   onStatusChange: (status: ArchitectureStatusType) => void;
   onArchitectureUpdate: (updates: Partial<CanonicalArchitecture>) => void;
+  metadata?: {
+    provider: string;
+    model: string;
+    generation_duration_ms: number;
+  };
 }
 
 export default function ArchitectureArtifact({
@@ -30,6 +35,7 @@ export default function ArchitectureArtifact({
   status,
   onStatusChange,
   onArchitectureUpdate,
+  metadata,
 }: ArchitectureArtifactProps) {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
@@ -86,6 +92,15 @@ export default function ArchitectureArtifact({
               </span>
               <span className="text-xs text-muted-foreground">•</span>
               <span className="text-xs text-muted-foreground">Generated just now</span>
+              {metadata && (
+                <>
+                  <span className="text-xs text-muted-foreground">|</span>
+                  <span className="text-xs text-muted-foreground">
+                    {metadata.provider} / {metadata.model} /{" "}
+                    {(metadata.generation_duration_ms / 1000).toFixed(1)}s
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
@@ -156,6 +171,12 @@ export default function ArchitectureArtifact({
                   title="Network Architecture"
                 />
               )}
+              {!architecture.high_level_diagram &&
+                !architecture.network_diagram && (
+                  <p className="text-sm text-muted-foreground">
+                    No Mermaid diagram was returned for this architecture.
+                  </p>
+                )}
             </TabsContent>
 
             <TabsContent value="components" className="mt-0">
@@ -169,6 +190,11 @@ export default function ArchitectureArtifact({
             <TabsContent value="report" className="mt-0">
               {architecture.markdown_report && (
                 <ArchitectureReport markdown={architecture.markdown_report} />
+              )}
+              {!architecture.markdown_report && (
+                <p className="text-sm text-muted-foreground">
+                  No Markdown report was returned.
+                </p>
               )}
             </TabsContent>
 

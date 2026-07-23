@@ -13,7 +13,7 @@ export default function RequirementComposer({ onSubmit, isLoading }: Requirement
   const [requirement, setRequirement] = useState("");
   const [context, setContext] = useState<RequirementContext>({
     environment: "development",
-    budgetPreference: "BALANCED",
+    budget_preference: "BALANCED",
     cloud: "AWS",
     region: "eu-west-1",
   });
@@ -99,9 +99,9 @@ export default function RequirementComposer({ onSubmit, isLoading }: Requirement
           <div>
             <label className="text-xs font-medium text-muted-foreground">Budget Preference</label>
             <select
-              value={context.budgetPreference}
+              value={context.budget_preference}
               onChange={(e) =>
-                setContext({ ...context, budgetPreference: e.target.value as any })
+                setContext({ ...context, budget_preference: e.target.value })
               }
               className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-md text-sm"
             >
@@ -129,4 +129,3 @@ export default function RequirementComposer({ onSubmit, isLoading }: Requirement
     </div>
   );
 }
-

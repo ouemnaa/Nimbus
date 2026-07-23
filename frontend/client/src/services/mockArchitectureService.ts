@@ -11,10 +11,15 @@ export const architectureService = {
     await new Promise((resolve) => setTimeout(resolve, 600));
 
     return {
-      projectId: "demo-architecture",
       architecture: {
         ...mockArchitecture,
         title: request.requirement.slice(0, 60) || mockArchitecture.title,
+      },
+      report_markdown: mockArchitecture.markdown_report || "",
+      metadata: {
+        provider: "demo",
+        model: "nimbus-demo-architecture",
+        generation_duration_ms: 600,
       },
     };
   },

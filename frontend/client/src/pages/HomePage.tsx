@@ -5,37 +5,98 @@ import PromptSuggestion from "@/components/prompt/PromptSuggestion";
 import RecentProjectItem from "@/components/project/RecentProjectItem";
 import { promptSuggestions } from "@/data/promptSuggestions";
 import { mockProjects } from "@/data/mockArchitecture";
-import { architectureService } from "@/services/mockArchitectureService";
+import { architectureService as demoArchitectureService } from "@/services/mockArchitectureService";
+import {
+  analyzeArchitecture,
+  ARCHITECT_AGENT_URL,
+} from "@/services/architectureService";
 import { RequirementContext } from "@/types/architecture";
 import { BoltStyleChat } from "@/components/ui/bolt-style-chat";
+import AgentActivity from "@/components/agent/AgentActivity";
+import { Button } from "@/components/ui/button";
+import { AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function HomePage() {
   const [, navigate] = useLocation();
-  const [, setIsAnalyzing] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastSubmission, setLastSubmission] = useState<{
+    requirement: string;
+    context: RequirementContext;
+  } | null>(null);
 
-  const handleAnalyze = async (requirement: string, context: RequirementContext) => {
+  const saveAndOpenWorkspace = (
+    response: Awaited<ReturnType<typeof analyzeArchitecture>>,
+    requirement: string
+  ) => {
+    localStorage.setItem("nimbus:lastArchitecture", JSON.stringify(response));
+    localStorage.setItem("nimbus:lastRequirement", requirement);
+    const projectId = response.architecture.architecture_id || "latest";
+    navigate(`/workspace/${encodeURIComponent(projectId)}`);
+  };
+
+  const handleAnalyze = async (
+    requirement: string,
+    context: RequirementContext
+  ): Promise<boolean> => {
+    const trimmedRequirement = requirement.trim();
+    if (!trimmedRequirement) {
+      setError("Describe what you want to design before submitting.");
+      return false;
+    }
+
+    const submission = { requirement: trimmedRequirement, context };
+    setLastSubmission(submission);
     setIsAnalyzing(true);
+    setError(null);
     try {
-      const response = await architectureService.analyzeRequirement({
-        requirement,
-        context,
-      });
-      navigate(`/workspace/${response.projectId}`);
+      const response = await analyzeArchitecture(submission);
+      saveAndOpenWorkspace(response, trimmedRequirement);
+      return true;
     } catch (error) {
-      console.error("Analysis failed:", error);
+      setError(
+        error instanceof Error
+          ? error.message
+          : `Could not reach the Solution Architect Agent. Make sure the agent is running on ${ARCHITECT_AGENT_URL || "http://localhost:8001"}.`
+      );
+      return false;
+    } finally {
       setIsAnalyzing(false);
     }
   };
 
   const handleChatSubmit = (value: string) => {
     const context: RequirementContext = {
-      environment: "production",
-      budgetPreference: "BALANCED",
+      environment: "development",
+      budget_preference: "low",
       cloud: "AWS",
       region: "eu-west-1",
     };
-    handleAnalyze(value, context);
+    return handleAnalyze(value, context);
+  };
+
+  const handleUseDemoData = async () => {
+    const submission =
+      lastSubmission || {
+        requirement:
+          "Deploy a small containerized web application with PostgreSQL on AWS. This is a development environment and cost should remain low.",
+        context: {
+          environment: "development" as const,
+          budget_preference: "low",
+          cloud: "AWS" as const,
+          region: "eu-west-1",
+        },
+      };
+
+    setError(null);
+    setIsAnalyzing(true);
+    try {
+      const response = await demoArchitectureService.analyzeRequirement(submission);
+      saveAndOpenWorkspace(response, submission.requirement);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -54,6 +115,45 @@ export default function HomePage() {
               subtitle="Turn your product idea into a review-ready cloud architecture in one conversation."
               placeholder="Describe your application requirements and goals. For example: low-cost AWS platform with ECS, PostgreSQL, private networking, and room to scale."
               fullBleed
+              isLoading={isAnalyzing}
+              feedback={
+                isAnalyzing ? (
+                  <div className="mx-auto w-full max-w-[720px] text-left">
+                    <AgentActivity isAnalyzing />
+                  </div>
+                ) : error ? (
+                  <div className="mx-auto w-full max-w-[720px] rounded-2xl border border-red-400/25 bg-red-950/20 p-4 text-left backdrop-blur-md">
+                    <div className="flex gap-3">
+                      <AlertCircle className="mt-0.5 size-5 shrink-0 text-red-300" />
+                      <div className="space-y-3">
+                        <p className="text-sm text-text-primary">{error}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              lastSubmission &&
+                              handleAnalyze(
+                                lastSubmission.requirement,
+                                lastSubmission.context
+                              )
+                            }
+                            disabled={!lastSubmission}
+                          >
+                            Try again
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleUseDemoData}
+                          >
+                            Use demo data
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : undefined
+              }
             />
           </motion.div>
 

@@ -12,26 +12,28 @@ export default function AgentActivity({ isAnalyzing }: AgentActivityProps) {
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
       <div className="mb-3">
-        <p className="text-sm font-semibold text-foreground">Architect Agent Working</p>
+        <p className="text-sm font-semibold text-foreground">
+          Sending requirement to Solution Architect
+        </p>
         <p className="text-xs text-muted-foreground">
-          Reviewing requirements, shaping the architecture, and preparing artifacts.
+          The agent is analyzing your request and preparing the reviewable artifact.
         </p>
       </div>
       <div className="space-y-3">
         <AgentStep
           status="completed"
-          title="Requirement parsed"
-          description="Business goal and constraints were extracted from the prompt."
+          title="Analyzing architecture needs"
+          description="Reviewing the business goal, constraints, and environment."
         />
         <AgentStep
           status="active"
-          title="Architecture reasoning"
-          description="Evaluating infrastructure tradeoffs and preparing reviewable outputs."
+          title="Generating cloud architecture"
+          description="Evaluating infrastructure choices and their tradeoffs."
         />
         <AgentStep
           status="pending"
-          title="Artifact refresh"
-          description="Updating diagrams, report, and canonical JSON."
+          title="Preparing reviewable artifact"
+          description="Building the report and canonical architecture JSON."
         />
       </div>
     </div>

@@ -432,7 +432,7 @@ export const mockProjects = [
     resourceCount: 6,
     context: {
       environment: "development" as const,
-      budgetPreference: "MINIMIZE_COST" as const,
+      budget_preference: "MINIMIZE_COST",
       cloud: "AWS" as const,
       region: "eu-west-1",
     },
@@ -448,7 +448,7 @@ export const mockProjects = [
     resourceCount: 3,
     context: {
       environment: "production" as const,
-      budgetPreference: "BALANCED" as const,
+      budget_preference: "BALANCED",
       cloud: "AWS" as const,
       region: "us-east-1",
     },
@@ -464,7 +464,7 @@ export const mockProjects = [
     resourceCount: 8,
     context: {
       environment: "production" as const,
-      budgetPreference: "PERFORMANCE_FIRST" as const,
+      budget_preference: "PERFORMANCE_FIRST",
       cloud: "AWS" as const,
       region: "eu-central-1",
     },

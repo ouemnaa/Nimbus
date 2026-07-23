@@ -7,20 +7,110 @@ import ArchitectureArtifact from "@/components/architecture/ArchitectureArtifact
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { mockArchitecture, mockProjects } from "@/data/mockArchitecture";
+import { mockArchitecture } from "@/data/mockArchitecture";
 import { useArchitecture } from "@/hooks/useArchitecture";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import type {
+  AnalyzeArchitectureResponse,
+  CanonicalArchitecture,
+} from "@/types/architecture";
 import { ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
+function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
+  try {
+    const stored = localStorage.getItem("nimbus:lastArchitecture");
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = JSON.parse(stored) as Partial<AnalyzeArchitectureResponse>;
+    return parsed.architecture && typeof parsed.architecture === "object"
+      ? (parsed as AnalyzeArchitectureResponse)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractMermaidDiagrams(markdown: string): string[] {
+  return Array.from(
+    markdown.matchAll(/```mermaid\s*([\s\S]*?)```/gi),
+    (match) => match[1].trim()
+  );
+}
+
+function prepareArchitecture(
+  response: AnalyzeArchitectureResponse | null
+): CanonicalArchitecture {
+  if (!response) {
+    return mockArchitecture;
+  }
+
+  const architecture = response.architecture;
+  const diagrams = extractMermaidDiagrams(response.report_markdown || "");
+
+  return {
+    ...architecture,
+    title: architecture.title || "Generated Cloud Architecture",
+    status: architecture.status || "READY_FOR_REVIEW",
+    requirement_summary: {
+      business_goal:
+        architecture.requirement_summary?.business_goal || "Not provided",
+      application_type:
+        architecture.requirement_summary?.application_type || "Not provided",
+      environment:
+        architecture.requirement_summary?.environment || "development",
+      expected_users_or_traffic:
+        architecture.requirement_summary?.expected_users_or_traffic ||
+        "Not provided",
+      functional_requirements:
+        architecture.requirement_summary?.functional_requirements || [],
+      non_functional_requirements:
+        architecture.requirement_summary?.non_functional_requirements || [],
+      constraints: architecture.requirement_summary?.constraints || [],
+      budget_preference:
+        architecture.requirement_summary?.budget_preference || "not specified",
+      availability_requirement:
+        architecture.requirement_summary?.availability_requirement ||
+        "not specified",
+    },
+    cloud: {
+      provider: architecture.cloud?.provider || "AWS",
+      region: architecture.cloud?.region || "Not specified",
+      region_rationale: architecture.cloud?.region_rationale || "Not provided",
+    },
+    solution: architecture.solution || "No solution summary was returned.",
+    resources: architecture.resources || [],
+    relationships: architecture.relationships || [],
+    decisions: architecture.decisions || [],
+    security_considerations: architecture.security_considerations || [],
+    reliability_considerations: architecture.reliability_considerations || [],
+    scalability_considerations: architecture.scalability_considerations || [],
+    cost_considerations: architecture.cost_considerations || [],
+    operational_considerations: architecture.operational_considerations || [],
+    assumptions: architecture.assumptions || [],
+    open_questions: architecture.open_questions || [],
+    risks: architecture.risks || [],
+    limitations: architecture.limitations || [],
+    recommended_diagrams: architecture.recommended_diagrams || [],
+    markdown_report: response.report_markdown || "",
+    high_level_diagram: architecture.high_level_diagram || diagrams[0],
+    network_diagram: architecture.network_diagram || diagrams[1],
+  };
+}
+
 export default function WorkspacePage() {
   const { projectId } = useParams();
+  const [storedResponse] = useState(loadStoredArchitecture);
+  const initialArchitecture = prepareArchitecture(storedResponse);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
     {
       role: "user",
       content:
-        "Design AWS infrastructure for a small containerized web application with PostgreSQL. This is a development environment and cost should remain low.",
+        localStorage.getItem("nimbus:lastRequirement") ||
+        "Design AWS infrastructure for a small containerized web application with PostgreSQL.",
     },
     {
       role: "assistant",
@@ -29,7 +119,7 @@ export default function WorkspacePage() {
   ]);
   const [followUp, setFollowUp] = useState("");
   const { architecture, status, updateStatus, updateArchitecture } =
-    useArchitecture(mockArchitecture);
+    useArchitecture(initialArchitecture);
   const [savedStatus, setSavedStatus] = useLocalStorage(
     `architecture-status-${projectId}`,
     status
@@ -46,8 +136,6 @@ export default function WorkspacePage() {
   useEffect(() => {
     setSavedStatus(status);
   }, [status, setSavedStatus]);
-
-  const project = mockProjects.find((p) => p.id === projectId);
 
   const handleFollowUp = () => {
     if (followUp.trim()) {
@@ -66,7 +154,7 @@ export default function WorkspacePage() {
         {/* Left Panel: Conversation */}
         <div className="w-96 border-r border-gold-soft/10 flex flex-col bg-bg-surface-soft/80 backdrop-blur-md">
           <WorkspaceHeader
-            title={project?.title || "Architecture Workspace"}
+            title={architecture.title || "Architecture Workspace"}
             subtitle={`Status: ${status.replace(/_/g, " ")}`}
           />
 
@@ -84,7 +172,8 @@ export default function WorkspacePage() {
                 <div>
                   <span className="text-muted-foreground">Budget:</span>
                   <span className="ml-2 text-foreground">
-                    {architecture.requirement_summary.budget_preference.replace(/_/g, " ")}
+                    {(architecture.requirement_summary.budget_preference ||
+                      "not specified").replace(/_/g, " ")}
                   </span>
                 </div>
                 <div>
@@ -147,6 +236,7 @@ export default function WorkspacePage() {
             status={status}
             onStatusChange={updateStatus}
             onArchitectureUpdate={updateArchitecture}
+            metadata={storedResponse?.metadata}
           />
         </div>
       </div>

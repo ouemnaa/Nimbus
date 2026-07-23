@@ -138,9 +138,11 @@ function ModelSelector({
 function ChatInput({
   onSend,
   placeholder = "What do you want to build?",
+  isLoading = false,
 }: {
-  onSend?: (message: string) => void;
+  onSend?: (message: string) => boolean | void | Promise<boolean | void>;
   placeholder?: string;
+  isLoading?: boolean;
 }) {
   const [message, setMessage] = useState("");
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -154,12 +156,14 @@ function ChatInput({
     }
   }, [message]);
 
-  const handleSubmit = () => {
-    if (!message.trim()) {
+  const handleSubmit = async () => {
+    if (!message.trim() || isLoading) {
       return;
     }
-    onSend?.(message);
-    setMessage("");
+    const submitted = await onSend?.(message.trim());
+    if (submitted !== false) {
+      setMessage("");
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -179,6 +183,7 @@ function ChatInput({
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          disabled={isLoading}
           className="min-h-[86px] max-h-[200px] w-full resize-none bg-transparent px-5 pt-5 pb-3 text-[15px] text-text-primary placeholder:text-text-muted focus:outline-none"
           style={{ height: "86px" }}
         />
@@ -226,10 +231,12 @@ function ChatInput({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={!message.trim()}
+              disabled={!message.trim() || isLoading}
               className="flex items-center gap-2 rounded-full bg-gradient-to-r from-gold-cloud via-gold-soft to-warm-sand px-4 py-2 text-sm font-medium text-bg-main shadow-[0_0_20px_rgba(249,217,171,0.2)] transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <span className="hidden sm:inline">Design now</span>
+              <span className="hidden sm:inline">
+                {isLoading ? "Designing..." : "Design now"}
+              </span>
               <SendHorizontal className="size-4" />
             </button>
           </div>
@@ -384,9 +391,11 @@ interface BoltStyleChatProps {
   announcementText?: string;
   announcementHref?: string;
   placeholder?: string;
-  onSend?: (message: string) => void;
+  onSend?: (message: string) => boolean | void | Promise<boolean | void>;
   onImport?: (source: string) => void;
   fullBleed?: boolean;
+  isLoading?: boolean;
+  feedback?: React.ReactNode;
 }
 
 export function BoltStyleChat({
@@ -398,6 +407,8 @@ export function BoltStyleChat({
   onSend,
   onImport,
   fullBleed = false,
+  isLoading = false,
+  feedback,
 }: BoltStyleChatProps) {
   return (
     <div
@@ -436,10 +447,14 @@ export function BoltStyleChat({
         </div>
 
         <div className="mt-2 mb-6 w-full max-w-[760px] sm:mb-8">
-          <ChatInput placeholder={placeholder} onSend={onSend} />
+          <ChatInput
+            placeholder={placeholder}
+            onSend={onSend}
+            isLoading={isLoading}
+          />
         </div>
 
-        <ImportButtons onImport={onImport} />
+        {feedback || <ImportButtons onImport={onImport} />}
       </div>
     </div>
   );

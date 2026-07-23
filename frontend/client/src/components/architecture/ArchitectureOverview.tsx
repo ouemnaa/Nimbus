@@ -6,13 +6,18 @@ interface ArchitectureOverviewProps {
 }
 
 export default function ArchitectureOverview({ architecture }: ArchitectureOverviewProps) {
+  const solutionSummary =
+    typeof architecture.solution === "string"
+      ? architecture.solution
+      : architecture.solution.summary;
+
   return (
     <div className="space-y-6">
       {/* Summary */}
       <Card className="p-6 bg-background border-border">
         <h3 className="text-sm font-semibold text-foreground mb-3">Architecture Summary</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {architecture.solution.summary}
+          {solutionSummary || "No solution summary was returned."}
         </p>
       </Card>
 
@@ -52,6 +57,46 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
         </div>
       </Card>
 
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="p-6 bg-background border-border">
+          <h3 className="mb-3 text-sm font-semibold text-foreground">
+            Security Considerations
+          </h3>
+          {architecture.security_considerations.length ? (
+            <ul className="space-y-2">
+              {architecture.security_considerations.map((item, index) => (
+                <li key={index} className="text-sm text-muted-foreground">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No security considerations were returned.
+            </p>
+          )}
+        </Card>
+
+        <Card className="p-6 bg-background border-border">
+          <h3 className="mb-3 text-sm font-semibold text-foreground">
+            Cost Considerations
+          </h3>
+          {architecture.cost_considerations.length ? (
+            <ul className="space-y-2">
+              {architecture.cost_considerations.map((item, index) => (
+                <li key={index} className="text-sm text-muted-foreground">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No cost considerations were returned.
+            </p>
+          )}
+        </Card>
+      </div>
+
       {/* Assumptions */}
       <Card className="p-6 bg-background border-border">
         <h3 className="text-sm font-semibold text-foreground mb-3">Assumptions</h3>
@@ -82,7 +127,14 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
         <div className="space-y-3">
           {architecture.risks.map((risk, idx) => (
             <div key={idx}>
-              <p className="text-sm font-medium text-foreground">{risk.risk}</p>
+              <p className="text-sm font-medium text-foreground">
+                {risk.title || risk.risk || "Architecture risk"}
+              </p>
+              {risk.description && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {risk.description}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground mt-1">→ {risk.mitigation}</p>
             </div>
           ))}
@@ -91,4 +143,3 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
     </div>
   );
 }
-
