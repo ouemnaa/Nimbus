@@ -22,7 +22,7 @@ export default function ProjectsPage() {
 
   const statusColors: Record<string, string> = {
     APPROVED: "bg-emerald-500/10 text-emerald-400",
-    READY_FOR_REVIEW: "bg-blue-500/10 text-blue-400",
+    READY_FOR_REVIEW: "bg-gold-soft/10 text-gold-cloud",
     NEEDS_CLARIFICATION: "bg-amber-500/10 text-amber-400",
   };
 

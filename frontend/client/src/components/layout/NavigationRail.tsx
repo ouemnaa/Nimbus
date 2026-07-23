@@ -2,10 +2,10 @@ import { Link, useLocation } from "wouter";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
-  Zap,
+  Plus,
   Layers,
   FolderOpen,
-  Zap as Activity,
+  Activity,
   Settings,
   Moon,
   Sun,
@@ -27,7 +27,7 @@ export default function NavigationRail() {
   ];
 
   return (
-    <div className="w-[68px] bg-card border-r border-border flex flex-col items-center py-4 gap-4 h-screen">
+    <div className="w-[70px] bg-[#0A0E17]/95 border-r border-gold-soft/15 flex flex-col items-center py-4 gap-4 h-screen backdrop-blur-2xl z-20">
       {/* Logo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -35,7 +35,7 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-lg w-10 h-10 bg-primary/10 hover:bg-primary/20 text-primary"
+              className="rounded-xl w-10 h-10 bg-gradient-to-br from-gold-soft/20 to-bronze-muted/20 text-gold-soft border border-gold-soft/30 hover:border-gold-soft/60 transition-all duration-300 shadow-[0_0_20px_rgba(249,217,171,0.15)]"
             >
               <span className="font-bold text-lg">{brand.shortName}</span>
             </Button>
@@ -51,9 +51,9 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-lg w-10 h-10 hover:bg-accent/20 text-accent"
+              className="rounded-xl w-10 h-10 bg-gold-soft/10 hover:bg-gold-soft/20 text-gold-cloud border border-gold-soft/25 transition-all duration-200"
             >
-              <Zap className="w-5 h-5" />
+              <Plus className="w-5 h-5" />
             </Button>
           </Link>
         </TooltipTrigger>
@@ -69,7 +69,7 @@ export default function NavigationRail() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-lg w-10 h-10 opacity-50 cursor-not-allowed"
+                  className="rounded-xl w-10 h-10 opacity-40 cursor-not-allowed text-text-muted"
                   disabled
                 >
                   <item.icon className="w-5 h-5" />
@@ -79,10 +79,10 @@ export default function NavigationRail() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`rounded-lg w-10 h-10 ${
+                    className={`rounded-xl w-10 h-10 transition-all ${
                       isActive(item.path)
-                        ? "bg-primary/20 text-primary"
-                        : "hover:bg-accent/10 text-muted-foreground"
+                        ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-[0_0_15px_rgba(249,217,171,0.15)]"
+                        : "hover:bg-gold-soft/10 text-text-secondary hover:text-gold-soft"
                     }`}
                   >
                     <item.icon className="w-5 h-5" />
@@ -106,7 +106,7 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-lg w-10 h-10 hover:bg-accent/10 text-muted-foreground"
+              className="rounded-xl w-10 h-10 hover:bg-gold-soft/10 text-text-secondary hover:text-gold-soft transition-colors"
               onClick={toggleTheme}
               disabled={!switchable}
             >
@@ -129,10 +129,10 @@ export default function NavigationRail() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={`rounded-lg w-10 h-10 ${
+                className={`rounded-xl w-10 h-10 transition-all ${
                   isActive("/settings")
-                    ? "bg-primary/20 text-primary"
-                    : "hover:bg-accent/10 text-muted-foreground"
+                    ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-[0_0_15px_rgba(249,217,171,0.15)]"
+                    : "hover:bg-gold-soft/10 text-text-secondary hover:text-gold-soft"
                 }`}
               >
                 <Settings className="w-5 h-5" />
@@ -148,7 +148,7 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-lg w-10 h-10 bg-primary/10 hover:bg-primary/20 text-primary"
+              className="rounded-xl w-10 h-10 bg-gold-soft/10 hover:bg-gold-soft/20 text-text-primary hover:text-gold-soft transition-colors border border-gold-soft/20"
             >
               <User className="w-5 h-5" />
             </Button>

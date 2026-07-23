@@ -7,7 +7,7 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-transparent">
       <NavigationRail />
       <main className="flex-1 overflow-hidden">{children}</main>
     </div>

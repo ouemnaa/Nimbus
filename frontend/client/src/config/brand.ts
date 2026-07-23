@@ -1,4 +1,4 @@
 export const brand = {
-  name: "Architect AI",
-  shortName: "AI",
+  name: "Nimbus",
+  shortName: "N",
 };

@@ -40,7 +40,7 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
   };
 
   return (
-    <Card className="p-4 bg-background border-border">
+    <Card className="p-4 bg-[rgba(17,22,29,0.82)] border-gold-soft/15">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <div className="flex items-center gap-2">
@@ -85,7 +85,7 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
         </div>
       ) : (
         <div
-          className="overflow-auto bg-card/50 rounded border border-border p-4 flex items-center justify-center min-h-96"
+          className="overflow-auto bg-bg-surface rounded border border-gold-soft/12 p-4 flex items-center justify-center min-h-96"
           style={{ transform: `scale(${scale})`, transformOrigin: "top center" }}
         >
           <div ref={containerRef} className="w-full" />

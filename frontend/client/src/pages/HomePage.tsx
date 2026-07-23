@@ -42,37 +42,37 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <div className="flex-1 overflow-auto bg-gradient-to-b from-background via-background to-primary/5">
+      <div className="flex-1 overflow-auto bg-transparent">
         <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <motion.div
-            className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-3xl"
+            className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-gold-soft/10 to-transparent rounded-full blur-3xl"
             animate={{ y: [0, 50, 0], x: [0, 30, 0] }}
             transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.div
-            className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-accent/20 to-transparent rounded-full blur-3xl"
+            className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-old-gold/10 to-transparent rounded-full blur-3xl"
             animate={{ y: [0, -50, 0], x: [0, -30, 0] }}
             transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
           />
         </div>
         <div className="relative z-10 max-w-5xl mx-auto px-6 py-16">
           <motion.div className="text-center mb-16" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-            <motion.h1 className="text-6xl md:text-7xl font-black text-foreground mb-4 bg-gradient-to-r from-foreground via-primary to-accent bg-clip-text text-transparent" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}>
+            <motion.h1 className="text-6xl md:text-7xl font-black mb-4 bg-gradient-to-r from-text-primary via-gold-cloud to-storm-slate bg-clip-text text-transparent" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}>
               What are you building?
             </motion.h1>
-            <motion.p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }}>
-              Describe your application, constraints and goals. Your Solution Architect will turn them into a reviewable cloud design.
+            <motion.p className="text-xl text-[#C9BFAF] max-w-2xl mx-auto leading-relaxed" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }}>
+              Architect scalable, high-availability cloud infrastructure with AI in seconds.
             </motion.p>
           </motion.div>
           <motion.div className="mb-20" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.3 }}>
             <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-primary/50 via-accent/50 to-primary/50 rounded-2xl blur-xl opacity-50" />
-              <div className="relative bg-background/80 backdrop-blur-xl rounded-2xl border border-primary/20">
-            <VercelV0ChatModern
-              onSubmit={handleChatSubmit}
-              title=""
-              placeholder="Describe your application, constraints and goals. Your Solution Architect will turn them into a reviewable cloud design."
-            />
+              <div className="absolute inset-0 bg-gradient-to-r from-gold-soft/30 via-bronze-muted/20 to-gold-soft/30 rounded-3xl blur-2xl opacity-40" />
+              <div className="relative">
+                <VercelV0ChatModern
+                  onSubmit={handleChatSubmit}
+                  title=""
+                  placeholder="Describe your application requirements & goals (e.g., 'Low-cost AWS ECS cluster with PostgreSQL and Redis')..."
+                />
               </div>
             </div>
           </motion.div>

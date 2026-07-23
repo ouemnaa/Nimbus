@@ -62,9 +62,9 @@ export default function WorkspacePage() {
 
   return (
     <AppShell>
-      <div className="flex h-screen bg-gradient-to-br from-background via-background to-primary/5">
+      <div className="flex h-screen bg-transparent">
         {/* Left Panel: Conversation */}
-        <div className="w-96 border-r border-border/50 flex flex-col bg-background/80 backdrop-blur-sm">
+        <div className="w-96 border-r border-gold-soft/10 flex flex-col bg-bg-surface-soft/80 backdrop-blur-md">
           <WorkspaceHeader
             title={project?.title || "Architecture Workspace"}
             subtitle={`Status: ${status.replace(/_/g, " ")}`}
@@ -73,7 +73,7 @@ export default function WorkspacePage() {
           <div className="flex-1 overflow-auto p-4 space-y-4">
             {/* Context Info */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              <Card className="p-3 bg-gradient-to-br from-card/80 to-card/50 border border-border/50 hover:border-primary/30 transition-all duration-300 text-xs">
+              <Card className="p-3 bg-[rgba(17,22,29,0.82)] border border-gold-soft/15 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
               <div className="space-y-2">
                 <div>
                   <span className="text-muted-foreground">Environment:</span>
@@ -104,10 +104,10 @@ export default function WorkspacePage() {
                 transition={{ duration: 0.4 }}
               >
                 <Card
-                  className={`p-3 transition-all duration-300 ${
+                  className={`p-3 transition-all duration-300 shadow-none ${
                     msg.role === "user"
-                      ? "bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/30 hover:border-primary/50"
-                      : "bg-gradient-to-br from-card/80 to-card/50 border border-border/50 hover:border-primary/30"
+                      ? "bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 border border-gold-soft/20 hover:border-gold-soft/40"
+                      : "bg-[rgba(17,22,29,0.82)] border border-gold-soft/10 hover:border-gold-soft/30"
                   }`}
                 >
                 <p className="text-xs font-semibold text-muted-foreground mb-1">
@@ -122,17 +122,17 @@ export default function WorkspacePage() {
           </div>
 
           {/* Follow-up Input */}
-          <div className="border-t border-border/50 p-4 space-y-3 bg-background/50 backdrop-blur-sm">
+          <div className="border-t border-gold-soft/10 p-4 space-y-3 bg-bg-surface-soft/50 backdrop-blur-md">
             <Textarea
               placeholder="Ask about the architecture or request a change…"
               value={followUp}
               onChange={(e) => setFollowUp(e.target.value)}
-              className="min-h-20 resize-none bg-gradient-to-br from-card/80 to-card/50 border border-border/50 focus:border-primary/50 transition-all duration-300"
+              className="min-h-20 resize-none bg-[rgba(7,9,13,0.62)] border border-gold-soft/15 focus:border-gold-soft/45 focus:shadow-[0_0_15px_rgba(249,217,171,0.15)] transition-all duration-300 text-text-primary"
             />
             <Button
               onClick={handleFollowUp}
               disabled={!followUp.trim()}
-              className="w-full gap-2 bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-primary/50 transition-all duration-300"
+              className="w-full gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-bg-main hover:shadow-[0_0_15px_rgba(228,187,150,0.3)] transition-all duration-300 border-none"
             >
               <ArrowRight className="w-4 h-4" />
               Send

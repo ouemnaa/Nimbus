@@ -13,7 +13,7 @@ export default function AgentStep({ status, title, description }: AgentStepProps
     status === "completed" ? (
       <Check className="w-4 h-4 text-emerald-400" />
     ) : status === "active" ? (
-      <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
+      <Zap className="w-4 h-4 text-gold-soft animate-pulse" />
     ) : (
       <Clock className="w-4 h-4 text-muted-foreground" />
     );

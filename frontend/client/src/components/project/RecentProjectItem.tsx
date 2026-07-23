@@ -22,7 +22,7 @@ export default function RecentProjectItem({
     status === "APPROVED"
       ? "bg-emerald-500/10 text-emerald-400"
       : status === "READY_FOR_REVIEW"
-        ? "bg-blue-500/10 text-blue-400"
+        ? "bg-gold-soft/10 text-gold-cloud"
         : "bg-amber-500/10 text-amber-400";
 
   return (
@@ -32,16 +32,16 @@ export default function RecentProjectItem({
         whileTap={{ scale: 0.98 }}
         className="cursor-pointer"
       >
-        <Card className="p-3 h-full bg-gradient-to-br from-card to-card/50 hover:from-primary/10 hover:to-accent/10 border border-border/50 hover:border-primary/50 transition-all duration-300 group">
+        <Card className="p-3 h-full bg-gradient-to-b from-[rgba(17,22,29,0.92)] to-[rgba(12,18,26,0.88)] border border-gold-soft/12 hover:border-gold-soft/28 hover:shadow-[0_20px_70px_rgba(228,187,150,0.08)] transition-all duration-300 group">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate flex items-center gap-2">
+            <h4 className="font-semibold text-sm text-[#F7EEDC] group-hover:text-gold-soft transition-colors truncate flex items-center gap-2">
               {title}
               <motion.div animate={{ x: [0, 4, 0] }} transition={{ duration: 2, repeat: Infinity }}>
                 <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
               </motion.div>
             </h4>
-            <p className="text-xs text-muted-foreground mt-1">{formatDate(updatedAt)}</p>
+            <p className="text-xs text-[#AFA79A] mt-1">{formatDate(updatedAt)}</p>
           </div>
           <Badge className={`${statusColor} text-xs whitespace-nowrap`}>
             {formatStatus(status)}

@@ -48,7 +48,7 @@ export default function ArchitectureComponents({ components }: ArchitectureCompo
                     <span
                       className={`text-xs px-2 py-1 rounded ${
                         component.scope === "public"
-                          ? "bg-blue-500/10 text-blue-400"
+                          ? "bg-gold-soft/10 text-gold-cloud"
                           : "bg-gray-500/10 text-gray-400"
                       }`}
                     >

@@ -102,7 +102,7 @@ export function VercelV0Chat({
     };
 
     return (
-        <div className="flex flex-col items-center w-full max-w-4xl mx-auto p-4 space-y-8">
+        <div className="flex flex-col items-center w-full max-w-4xl mx-auto p-2 space-y-6">
             {title && (
               <h1 className="text-4xl font-bold text-foreground">
                 {title}
@@ -111,8 +111,8 @@ export function VercelV0Chat({
 
             <div className="w-full">
                 <div className={cn(
-                  "relative bg-gradient-to-br from-card/80 to-card/50 rounded-2xl border transition-all duration-300",
-                  isFocused ? "border-primary/50 shadow-lg shadow-primary/20" : "border-border/50"
+                  "relative bg-gradient-to-b from-[#182232] to-[#101724] rounded-2xl border transition-all duration-300 shadow-[0_16px_60px_rgba(0,0,0,0.65),0_0_40px_rgba(249,217,171,0.08)] overflow-hidden",
+                  isFocused ? "border-gold-soft/60 shadow-[0_20px_70px_rgba(0,0,0,0.8),0_0_50px_rgba(249,217,171,0.22)]" : "border-gold-soft/30"
                 )}>
                     <div className="overflow-y-auto">
                         <Textarea
@@ -127,15 +127,15 @@ export function VercelV0Chat({
                             onBlur={() => setIsFocused(false)}
                             placeholder={placeholder}
                             className={cn(
-                                "w-full px-4 py-3",
+                                "w-full px-5 py-4",
                                 "resize-none",
-                                "bg-transparent",
+                                "bg-[#0C121D]",
                                 "border-none",
-                                "text-foreground text-sm",
+                                "text-[#F7EEDC] text-base leading-relaxed font-normal",
                                 "focus:outline-none",
                                 "focus-visible:ring-0 focus-visible:ring-offset-0",
-                                "placeholder:text-muted-foreground placeholder:text-sm",
-                                "min-h-[60px]"
+                                "placeholder:text-[#A8A195] placeholder:text-sm placeholder:font-normal",
+                                "min-h-[70px]"
                             )}
                             style={{
                               overflow: "hidden",
@@ -143,42 +143,40 @@ export function VercelV0Chat({
                         />
                     </div>
 
-                    <div className="flex items-center justify-between p-3 border-t border-border/30">
+                    <div className="flex items-center justify-between px-4 py-3 bg-[#121A28] border-t border-gold-soft/15">
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
-                                className="group p-2 hover:bg-primary/10 rounded-lg transition-all duration-200 flex items-center gap-1"
+                                className="group px-3 py-1.5 hover:bg-gold-soft/15 rounded-lg transition-all duration-200 flex items-center gap-1.5 text-xs text-[#C9BFAF] hover:text-gold-soft border border-transparent hover:border-gold-soft/20"
                             >
-                                <Paperclip className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                                <span className="text-xs text-muted-foreground hidden group-hover:inline transition-opacity">
-                                    Attach
-                                </span>
+                                <Paperclip className="w-4 h-4 text-gold-cloud group-hover:text-gold-soft transition-colors" />
+                                <span>Attach</span>
                             </button>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                             <button
                                 type="button"
-                                className="px-2 py-1 rounded-lg text-sm text-muted-foreground transition-all duration-200 border border-border/50 hover:border-primary/50 hover:bg-primary/5 flex items-center justify-between gap-1"
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#F7EEDC] transition-all duration-200 border border-gold-soft/25 hover:border-gold-soft/50 hover:bg-gold-soft/15 hover:text-gold-soft flex items-center justify-between gap-1.5 bg-[#182232]"
                             >
-                                <PlusIcon className="w-4 h-4" />
+                                <PlusIcon className="w-3.5 h-3.5 text-gold-cloud" />
                                 Project
                             </button>
                             <button
                                 type="button"
                                 onClick={handleSendClick}
                                 className={cn(
-                                    "px-1.5 py-1.5 rounded-lg text-sm transition-all duration-200 border flex items-center justify-between gap-1",
+                                    "p-2 rounded-lg text-sm transition-all duration-200 border flex items-center justify-center",
                                     value.trim()
-                                        ? "bg-gradient-to-r from-primary to-accent text-primary-foreground hover:shadow-lg hover:shadow-primary/50 border-primary/50"
-                                        : "text-muted-foreground border-border/50"
+                                        ? "bg-gradient-to-br from-gold-cloud via-gold-soft to-deep-ochre text-bg-main hover:shadow-[0_0_20px_rgba(249,217,171,0.4)] border-transparent"
+                                        : "text-text-muted border-gold-soft/20 bg-[#182232]"
                                 )}
                             >
                                 <ArrowUpIcon
                                     className={cn(
                                         "w-4 h-4",
                                         value.trim()
-                                            ? "text-primary-foreground"
-                                            : "text-muted-foreground"
+                                            ? "text-bg-main font-bold"
+                                            : "text-text-muted"
                                     )}
                                 />
                                 <span className="sr-only">Send</span>
@@ -187,25 +185,25 @@ export function VercelV0Chat({
                     </div>
                 </div>
 
-                <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+                <div className="flex items-center justify-center gap-3 mt-6 flex-wrap">
                     <ActionButton
-                        icon={<ImageIcon className="w-4 h-4" />}
+                        icon={<ImageIcon className="w-4 h-4 text-gold-cloud" />}
                         label="Clone a Screenshot"
                     />
                     <ActionButton
-                        icon={<Figma className="w-4 h-4" />}
+                        icon={<Figma className="w-4 h-4 text-gold-cloud" />}
                         label="Import from Figma"
                     />
                     <ActionButton
-                        icon={<FileUp className="w-4 h-4" />}
+                        icon={<FileUp className="w-4 h-4 text-gold-cloud" />}
                         label="Upload a Project"
                     />
                     <ActionButton
-                        icon={<MonitorIcon className="w-4 h-4" />}
+                        icon={<MonitorIcon className="w-4 h-4 text-gold-cloud" />}
                         label="Landing Page"
                     />
                     <ActionButton
-                        icon={<CircleUserRound className="w-4 h-4" />}
+                        icon={<CircleUserRound className="w-4 h-4 text-gold-cloud" />}
                         label="Sign Up Form"
                     />
                 </div>
@@ -223,10 +221,10 @@ function ActionButton({ icon, label }: ActionButtonProps) {
     return (
         <button
             type="button"
-            className="flex items-center gap-2 px-4 py-2 bg-card/50 hover:bg-primary/10 rounded-full border border-border/50 hover:border-primary/50 text-muted-foreground hover:text-foreground transition-all duration-200 hover:shadow-md hover:shadow-primary/20"
+            className="flex items-center gap-2 px-4 py-2 bg-[#182232] hover:bg-[#202C40] rounded-full border border-gold-soft/25 hover:border-gold-soft/55 text-[#F7EEDC] hover:text-gold-soft transition-all duration-200 shadow-md shadow-black/40 hover:shadow-[0_0_20px_rgba(249,217,171,0.15)]"
         >
             {icon}
-            <span className="text-xs">{label}</span>
+            <span className="text-xs font-medium">{label}</span>
         </button>
     );
 }

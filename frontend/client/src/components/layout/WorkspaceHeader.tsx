@@ -8,14 +8,14 @@ export default function WorkspaceHeader({
   subtitle,
 }: WorkspaceHeaderProps) {
   return (
-    <div className="border-b border-border/50 bg-background/70 px-5 py-4 backdrop-blur-sm">
+    <div className="border-b border-gold-soft/15 bg-[#0D131D]/90 px-5 py-4 backdrop-blur-md">
       <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">
+        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-gold-cloud">
           Solution Architect Workspace
         </p>
-        <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+        <h1 className="text-lg font-semibold text-[#F7EEDC]">{title}</h1>
         {subtitle ? (
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <p className="text-sm text-[#AFA79A]">{subtitle}</p>
         ) : null}
       </div>
     </div>
