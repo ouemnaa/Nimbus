@@ -77,22 +77,22 @@ export default function HomePage() {
   };
 
   const handleUseDemoData = async () => {
-    const submission =
-      lastSubmission || {
-        requirement:
-          "Deploy a small containerized web application with PostgreSQL on AWS. This is a development environment and cost should remain low.",
-        context: {
-          environment: "development" as const,
-          budget_preference: "low",
-          cloud: "AWS" as const,
-          region: "eu-west-1",
-        },
-      };
+    const submission = lastSubmission || {
+      requirement:
+        "Deploy a small containerized web application with PostgreSQL on AWS. This is a development environment and cost should remain low.",
+      context: {
+        environment: "development" as const,
+        budget_preference: "low",
+        cloud: "AWS" as const,
+        region: "eu-west-1",
+      },
+    };
 
     setError(null);
     setIsAnalyzing(true);
     try {
-      const response = await demoArchitectureService.analyzeRequirement(submission);
+      const response =
+        await demoArchitectureService.analyzeRequirement(submission);
       saveAndOpenWorkspace(response, submission.requirement);
     } finally {
       setIsAnalyzing(false);

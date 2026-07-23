@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ZoomIn, ZoomOut, Maximize2, RotateCcw } from "lucide-react";
@@ -11,26 +11,53 @@ interface ArchitectureDiagramProps {
 
 export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const reactId = useId();
+  const diagramId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [scale, setScale] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const renderDiagram = async () => {
       if (!containerRef.current) return;
 
       try {
-        mermaid.initialize({ startOnLoad: true, theme: "dark" });
-        const { svg } = await mermaid.render("diagram-" + Math.random(), diagram);
-        containerRef.current.innerHTML = svg;
-        setError(null);
+        const source = diagram
+          .trim()
+          .replace(/^```mermaid\s*/i, "")
+          .replace(/```\s*$/, "")
+          .trim();
+
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: "dark",
+          securityLevel: "loose",
+        });
+        await mermaid.parse(source);
+        const { svg, bindFunctions } = await mermaid.render(diagramId, source);
+
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
+          bindFunctions?.(containerRef.current);
+          setError(null);
+        }
       } catch (err) {
         console.error("Mermaid render error:", err);
-        setError("Failed to render diagram");
+        if (!cancelled) {
+          setError("Failed to render diagram");
+        }
       }
     };
 
     renderDiagram();
-  }, [diagram]);
+    return () => {
+      cancelled = true;
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
+    };
+  }, [diagram, diagramId]);
 
   const handleZoom = (direction: "in" | "out") => {
     setScale((prev) => {
@@ -94,4 +121,3 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
     </Card>
   );
 }
-

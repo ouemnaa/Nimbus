@@ -1,15 +1,26 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/card";
-import { ReactNode } from "react";
+import { Children, isValidElement, ReactNode } from "react";
+import ArchitectureDiagram from "./ArchitectureDiagram";
 
 interface ArchitectureReportProps {
   markdown: string;
 }
 
 export default function ArchitectureReport({ markdown }: ArchitectureReportProps) {
+  const report = typeof markdown === "string" ? markdown.trim() : "";
+
+  if (!report) {
+    return (
+      <Card className="border-border bg-background p-6 text-sm text-muted-foreground">
+        No Markdown report was returned.
+      </Card>
+    );
+  }
+
   return (
-    <Card className="p-6 bg-background border-border prose prose-invert max-w-none">
+    <Card className="max-w-none border-border bg-background p-6 text-foreground">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -30,15 +41,42 @@ export default function ArchitectureReport({ markdown }: ArchitectureReportProps
               {children}
             </ul>
           ),
+          ol: ({ children }: { children?: ReactNode }) => (
+            <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-muted-foreground">
+              {children}
+            </ol>
+          ),
           li: ({ children }: { children?: ReactNode }) => <li className="ml-2">{children}</li>,
-          code: ({ children }: { children?: ReactNode }) => (
-            <code className="bg-card px-2 py-1 rounded text-xs font-mono text-accent">
+          strong: ({ children }: { children?: ReactNode }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          code: ({ children, className }: { children?: ReactNode; className?: string }) => (
+            <code className={`${className || ""} rounded bg-card px-2 py-1 font-mono text-xs text-gold-cloud`}>
               {children}
             </code>
           ),
-          pre: ({ children }: { children?: ReactNode }) => (
-            <pre className="bg-card/50 p-4 rounded overflow-auto mb-3 text-xs">{children}</pre>
-          ),
+          pre: ({ children }: { children?: ReactNode }) => {
+            const child = Children.toArray(children)[0];
+            if (
+              isValidElement<{ className?: string; children?: ReactNode }>(child) &&
+              child.props.className?.includes("language-mermaid")
+            ) {
+              return (
+                <div className="my-5">
+                  <ArchitectureDiagram
+                    title="Architecture Diagram"
+                    diagram={String(child.props.children || "")}
+                  />
+                </div>
+              );
+            }
+
+            return (
+              <pre className="mb-3 overflow-auto rounded bg-card/50 p-4 text-xs text-foreground">
+                {children}
+              </pre>
+            );
+          },
           table: ({ children }: { children?: ReactNode }) => (
             <table className="w-full border-collapse mb-3 text-sm">{children}</table>
           ),
@@ -50,9 +88,10 @@ export default function ArchitectureReport({ markdown }: ArchitectureReportProps
           td: ({ children }: { children?: ReactNode }) => (
             <td className="border border-border px-3 py-2 text-muted-foreground">{children}</td>
           ),
+          hr: () => <hr className="my-6 border-border" />,
         }}
       >
-        {markdown}
+        {report}
       </ReactMarkdown>
     </Card>
   );
