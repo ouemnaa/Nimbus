@@ -9,7 +9,7 @@ export default function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen bg-transparent">
       <NavigationRail />
-      <main className="flex-1 overflow-hidden">{children}</main>
+      <main className="flex-1 overflow-auto">{children}</main>
     </div>
   );
 }

@@ -32,7 +32,7 @@ export default function RecentProjectItem({
         whileTap={{ scale: 0.98 }}
         className="cursor-pointer"
       >
-        <Card className="p-3 h-full bg-gradient-to-b from-[rgba(17,22,29,0.92)] to-[rgba(12,18,26,0.88)] border border-gold-soft/12 hover:border-gold-soft/28 hover:shadow-[0_20px_70px_rgba(228,187,150,0.08)] transition-all duration-300 group">
+        <Card className="p-3 h-full !bg-[#1A2233] border border-[#2A3A52] hover:border-gold-soft/50 hover:shadow-[0_20px_70px_rgba(228,187,150,0.1)] transition-all duration-300 group shadow-lg shadow-black/30">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <h4 className="font-semibold text-sm text-[#F7EEDC] group-hover:text-gold-soft transition-colors truncate flex items-center gap-2">

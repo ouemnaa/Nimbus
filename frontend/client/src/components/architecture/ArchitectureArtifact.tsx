@@ -64,9 +64,9 @@ export default function ArchitectureArtifact({
   };
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-background via-background to-primary/5">
+    <div className="flex flex-col h-full bg-transparent">
       {/* Header */}
-      <div className="border-b border-border/50 px-6 py-4 bg-background/80 backdrop-blur-sm">
+      <div className="border-b border-gold-soft/15 px-6 py-4 bg-[#0D131D]/90 backdrop-blur-md">
         <motion.div
           className="flex items-start justify-between gap-4 mb-4"
           initial={{ opacity: 0, y: -10 }}
@@ -74,7 +74,7 @@ export default function ArchitectureArtifact({
           transition={{ duration: 0.5 }}
         >
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-[#F7EEDC] via-gold-cloud to-storm-slate bg-clip-text text-transparent">
               {architecture.title}
             </h1>
             <div className="flex items-center gap-3 mt-2">

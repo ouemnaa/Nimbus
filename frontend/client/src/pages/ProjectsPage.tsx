@@ -28,7 +28,7 @@ export default function ProjectsPage() {
 
   return (
     <AppShell>
-      <div className="flex-1 overflow-auto bg-gradient-to-b from-background via-background to-primary/5">
+      <div className="flex-1 overflow-auto bg-transparent">
         <div className="max-w-5xl mx-auto px-6 py-8">
           {/* Header */}
           <motion.div
@@ -38,13 +38,13 @@ export default function ProjectsPage() {
             transition={{ duration: 0.6 }}
           >
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-[#F7EEDC] via-gold-cloud to-storm-slate bg-clip-text text-transparent">
                 Architecture Projects
               </h1>
-              <p className="text-muted-foreground mt-1">Manage and review your architectures</p>
+              <p className="text-[#9A9489] mt-1">Manage and review your architectures</p>
             </div>
             <Link href="/">
-              <Button className="gap-2 bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-primary/50 transition-all duration-300">
+              <Button className="gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-[#08090D] hover:shadow-[0_0_20px_rgba(249,217,171,0.3)] transition-all duration-300 border-none font-semibold">
                 <Plus className="w-4 h-4" />
                 New Architecture
               </Button>
@@ -64,7 +64,7 @@ export default function ProjectsPage() {
                 placeholder="Search projects..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-gradient-to-br from-card/80 to-card/50 border border-border/50 focus:border-primary/50 transition-all duration-300"
+                className="pl-10 !bg-[#1A2233] border border-[#2A3A52] focus:border-gold-soft/50 transition-all duration-300 text-[#F7EEDC] placeholder:text-[#8F8B84]"
               />
             </div>
 
@@ -116,16 +116,16 @@ export default function ProjectsPage() {
                 transition={{ duration: 0.4 }}
               >
                 <Link href={`/workspace/${project.id}`}>
-                  <Card className="p-4 bg-gradient-to-br from-card to-card/50 hover:from-primary/10 hover:to-accent/10 border border-border/50 hover:border-primary/50 transition-all cursor-pointer">
+                  <Card className="p-4 !bg-[#1A2233] border border-[#2A3A52] hover:border-gold-soft/50 transition-all cursor-pointer shadow-lg shadow-black/30 hover:shadow-[0_20px_70px_rgba(228,187,150,0.1)]">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                      <h3 className="font-semibold text-[#F7EEDC] group-hover:text-gold-soft transition-colors">
                         {project.title}
                       </h3>
-                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                      <p className="text-sm text-[#9A9489] mt-1 line-clamp-2">
                         {project.requirement}
                       </p>
-                      <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3 mt-3 text-xs text-[#8F8B84]">
                         <span>AWS</span>
                         <span>•</span>
                         <span>{project.context?.environment || "development"}</span>
@@ -149,7 +149,7 @@ export default function ProjectsPage() {
 
           {filteredProjects.length === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
-              <Card className="p-12 text-center bg-gradient-to-br from-card to-card/50 border border-border/50">
+              <Card className="p-12 text-center !bg-[#1A2233] border border-[#2A3A52]">
               <p className="text-muted-foreground">No projects found</p>
               </Card>
             </motion.div>

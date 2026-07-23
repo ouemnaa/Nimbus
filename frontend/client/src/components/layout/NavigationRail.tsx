@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { brand } from "@/config/brand";
 import { useTheme } from "@/contexts/ThemeContext";
+import logo from "@shared/logo.png";
 
 export default function NavigationRail() {
   const [location] = useLocation();
@@ -35,9 +36,13 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-xl w-10 h-10 bg-gradient-to-br from-gold-soft/20 to-bronze-muted/20 text-gold-soft border border-gold-soft/30 hover:border-gold-soft/60 transition-all duration-300 shadow-[0_0_20px_rgba(249,217,171,0.15)]"
+              className="h-12 w-12 rounded-2xl border border-gold-soft/30 bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 p-1 transition-all duration-300 hover:border-gold-soft/60 shadow-[0_0_20px_rgba(249,217,171,0.15)]"
             >
-              <span className="font-bold text-lg">{brand.shortName}</span>
+              <img
+                src={logo}
+                alt={`${brand.name} logo`}
+                className="h-full w-full rounded-xl object-cover"
+              />
             </Button>
           </Link>
         </TooltipTrigger>
