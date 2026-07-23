@@ -34,8 +34,8 @@ class ArchitectureService:
         )
 
         # Generate diagrams and report deterministically
-        mermaid_diagram = self.mermaid_renderer.render(architecture)
-        report_markdown = self.markdown_renderer.render(architecture, mermaid_diagram)
+        diagrams = self.mermaid_renderer.render(architecture)
+        report_markdown = self.markdown_renderer.render(architecture, diagrams)
         
         duration_ms = int((time.time() - start_time) * 1000)
         

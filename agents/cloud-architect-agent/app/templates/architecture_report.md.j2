@@ -1,88 +1,114 @@
-# Proposed Cloud Architecture: {{ title }}
+# Proposed Cloud Architecture
 
-## 1. Requirement Understanding
-{{ requirement_summary.business_goal }}
-
-**Application Type:** {{ requirement_summary.application_type }}
-**Environment:** {{ requirement_summary.environment }}
-
-### Functional Requirements
-{% for req in requirement_summary.functional_requirements -%}
-- {{ req }}
-{% endfor %}
-
-### Non-Functional Requirements
-{% for req in requirement_summary.non_functional_requirements -%}
-- {{ req }}
-{% endfor %}
-
-## 2. Recommended Architecture
+## 1. Simple Overview
 {{ solution }}
 
-## 3. High-Level Architecture Diagram
+## 2. High-Level Architecture Diagram
 ```mermaid
-{{ mermaid_diagram }}
+{{ simple_diagram }}
 ```
 
-{% if resources %}
-## 4. Architecture Components
-| Resource | Category | Purpose |
-| :--- | :--- | :--- |
-{% for res in resources -%}
-| {{ res.name }} | {{ res.category }} | {{ res.purpose }} |
-{% endfor %}
-{% endif %}
-
 {% if decisions %}
-## 5. Architecture Decisions
+## 3. Why This Architecture Was Chosen
 {% for dec in decisions %}
 ### {{ dec.title }}
-**Decision:** {{ dec.decision }}
+**Decision:** {{ dec.decision }}  
 **Rationale:** {{ dec.rationale }}
 
+{% if dec.alternatives_considered %}
 **Alternatives Considered:**
 {% for alt in dec.alternatives_considered %}
 - **{{ alt.option }}**: {{ alt.reason_not_selected }}
 {% endfor %}
-{% endfor %}
 {% endif %}
 
+{% endfor %}
+{% endif %}
 {% if security_considerations %}
-## 6. Security Considerations
-{% for item in security_considerations -%}
+## 4. Security Explanation
+{% for item in security_considerations %}
+- {{ item }}
+{% endfor %}
+
+{% endif %}
+{% if cost_profile %}
+## 5. Cost Profile
+**Selected Cost Profile:** {{ cost_profile.profile.replace('_', ' ') | title }}  
+**Estimated Cost Level:** {{ cost_profile.estimated_level.replace('_', ' ') | title }}
+
+{% if cost_profile.cost_saving_choices %}
+### Main Cost-Saving Choices
+{% for item in cost_profile.cost_saving_choices %}
 - {{ item }}
 {% endfor %}
 {% endif %}
 
-{% if cost_considerations %}
-## 7. Cost Considerations
-{% for item in cost_considerations -%}
+{% if cost_profile.main_cost_drivers %}
+### Main Cost Drivers
+{% for item in cost_profile.main_cost_drivers %}
+- **{{ item.resource_id }}**: {{ item.reason }}
+{% endfor %}
+{% endif %}
+
+{% if cost_profile.cheaper_alternatives %}
+### Cheaper Alternatives And Tradeoffs
+{% for item in cost_profile.cheaper_alternatives %}
+- **{{ item.option }}**: {{ item.tradeoff }}
+{% endfor %}
+{% endif %}
+
+{% if cost_profile.production_upgrade_notes %}
+### Production Upgrade Notes
+{% for item in cost_profile.production_upgrade_notes %}
 - {{ item }}
 {% endfor %}
 {% endif %}
 
+{% endif %}
+{% if resources %}
+## 6. Architecture Components
+| Resource | Category | Visibility | Purpose |
+| :--- | :--- | :--- | :--- |
+{% for res in resources %}
+| {{ res.name }} | {{ res.category }} | {{ res.diagram_visibility }} | {{ res.purpose }} |
+{% endfor %}
+
+{% endif %}
+{% if reliability_and_scalability %}
+## 7. Reliability and Scalability
+{% for item in reliability_and_scalability %}
+- {{ item }}
+{% endfor %}
+
+{% endif %}
 {% if assumptions %}
 ## 8. Assumptions
-{% for item in assumptions -%}
+{% for item in assumptions %}
 - {{ item }}
 {% endfor %}
-{% endif %}
 
+{% endif %}
 {% if open_questions %}
 ## 9. Open Questions
-{% for item in open_questions -%}
+{% for item in open_questions %}
 - {{ item }}
 {% endfor %}
-{% endif %}
 
+{% endif %}
 {% if risks %}
 ## 10. Risks and Mitigations
 | Risk | Severity | Mitigation |
 | :--- | :--- | :--- |
-{% for risk in risks -%}
+{% for risk in risks %}
 | {{ risk.title }} | {{ risk.severity }} | {{ risk.mitigation }} |
 {% endfor %}
-{% endif %}
 
-**Status:** {{ status }}
-**Architecture ID:** {{ architecture_id }} (v{{ architecture_version }})
+{% endif %}
+## 11. Advanced Technical Diagram
+```mermaid
+{{ advanced_diagram }}
+```
+
+## 12. Review Status
+**Status:** {{ status }}  
+**Architecture ID:** `{{ architecture_id }}` (`v{{ architecture_version }}`)

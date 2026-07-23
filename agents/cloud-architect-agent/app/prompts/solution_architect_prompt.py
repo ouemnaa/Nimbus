@@ -44,6 +44,8 @@ SCHEMA RULES:
 - Every relationship source and target must exist in the resources list.
 - Every dependency in 'depends_on' must exist.
 - NEVER include passwords, API keys, or real secrets in the configuration.
+- Include a cost_profile object that explains cost drivers, cost-saving choices, cheaper alternatives, and production upgrade notes.
+- Set diagram_visibility on every resource using only HIGH_LEVEL, TECHNICAL, or HIDDEN.
 
 Return only the structured JSON conforming to the ArchitectureSpecification schema.
 """
