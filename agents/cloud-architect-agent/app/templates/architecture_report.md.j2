@@ -1,0 +1,88 @@
+# Proposed Cloud Architecture: {{ title }}
+
+## 1. Requirement Understanding
+{{ requirement_summary.business_goal }}
+
+**Application Type:** {{ requirement_summary.application_type }}
+**Environment:** {{ requirement_summary.environment }}
+
+### Functional Requirements
+{% for req in requirement_summary.functional_requirements -%}
+- {{ req }}
+{% endfor %}
+
+### Non-Functional Requirements
+{% for req in requirement_summary.non_functional_requirements -%}
+- {{ req }}
+{% endfor %}
+
+## 2. Recommended Architecture
+{{ solution }}
+
+## 3. High-Level Architecture Diagram
+```mermaid
+{{ mermaid_diagram }}
+```
+
+{% if resources %}
+## 4. Architecture Components
+| Resource | Category | Purpose |
+| :--- | :--- | :--- |
+{% for res in resources -%}
+| {{ res.name }} | {{ res.category }} | {{ res.purpose }} |
+{% endfor %}
+{% endif %}
+
+{% if decisions %}
+## 5. Architecture Decisions
+{% for dec in decisions %}
+### {{ dec.title }}
+**Decision:** {{ dec.decision }}
+**Rationale:** {{ dec.rationale }}
+
+**Alternatives Considered:**
+{% for alt in dec.alternatives_considered %}
+- **{{ alt.option }}**: {{ alt.reason_not_selected }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% if security_considerations %}
+## 6. Security Considerations
+{% for item in security_considerations -%}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if cost_considerations %}
+## 7. Cost Considerations
+{% for item in cost_considerations -%}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if assumptions %}
+## 8. Assumptions
+{% for item in assumptions -%}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if open_questions %}
+## 9. Open Questions
+{% for item in open_questions -%}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if risks %}
+## 10. Risks and Mitigations
+| Risk | Severity | Mitigation |
+| :--- | :--- | :--- |
+{% for risk in risks -%}
+| {{ risk.title }} | {{ risk.severity }} | {{ risk.mitigation }} |
+{% endfor %}
+{% endif %}
+
+**Status:** {{ status }}
+**Architecture ID:** {{ architecture_id }} (v{{ architecture_version }})

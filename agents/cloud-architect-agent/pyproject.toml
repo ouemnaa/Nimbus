@@ -1,0 +1,28 @@
+[project]
+name = "cloud-architect-agent"
+version = "0.1.0"
+description = "AI agent that designs AWS architectures from natural language requirements."
+authors = [
+    {name = "Manus AI"}
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pydantic-settings",
+    "jinja2",
+    "httpx",
+    "python-dotenv",
+    "google-generativeai",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
