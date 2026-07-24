@@ -187,6 +187,118 @@
 }
 
 @layer components {
+  .workspace-tabs-list {
+    position: relative;
+  }
+
+  .workspace-tab {
+    position: relative;
+    height: 2.75rem;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--text-muted);
+    transition:
+      color 180ms ease,
+      text-shadow 180ms ease;
+  }
+
+  .workspace-tab::after {
+    position: absolute;
+    right: 24%;
+    bottom: -1px;
+    left: 24%;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--gold-cloud) 22%,
+      var(--gold-soft) 50%,
+      var(--gold-cloud) 78%,
+      transparent
+    );
+    box-shadow:
+      0 0 7px rgba(249, 217, 171, 0.7),
+      0 0 16px rgba(228, 187, 150, 0.35);
+    content: "";
+    opacity: 0;
+    transform: scaleX(0.35);
+    transition:
+      opacity 180ms ease,
+      transform 220ms ease;
+  }
+
+  .workspace-tab:hover {
+    color: var(--text-secondary);
+  }
+
+  .workspace-tab[data-state="active"] {
+    color: var(--text-primary) !important;
+    text-shadow: 0 0 14px rgba(249, 217, 171, 0.16);
+  }
+
+  .workspace-tab[data-state="active"]::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  .workspace-scrollbar {
+    scrollbar-color: rgba(228, 187, 150, 0.52) rgba(7, 9, 13, 0.35);
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar,
+  .workspace-scrollbar *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-track,
+  .workspace-scrollbar *::-webkit-scrollbar-track {
+    background: rgba(7, 9, 13, 0.45);
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-thumb,
+  .workspace-scrollbar *::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background:
+      linear-gradient(
+          180deg,
+          rgba(249, 217, 171, 0.78),
+          rgba(170, 146, 128, 0.62)
+        )
+        padding-box;
+    box-shadow: inset 0 0 0 1px rgba(249, 217, 171, 0.08);
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-thumb:hover,
+  .workspace-scrollbar *::-webkit-scrollbar-thumb:hover {
+    background:
+      linear-gradient(
+          180deg,
+          rgba(249, 217, 171, 0.95),
+          rgba(228, 187, 150, 0.78)
+        )
+        padding-box;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-button,
+  .workspace-scrollbar *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-corner,
+  .workspace-scrollbar *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   /**
    * Custom container utility that centers content and adds responsive padding.
    *

@@ -131,28 +131,28 @@ export default function ArchitectureArtifact({
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="flex-1 overflow-hidden flex flex-col">
-        <TabsList className="w-full justify-start border-b border-border/50 bg-background/50 backdrop-blur-sm px-6 rounded-none h-auto p-0">
-          <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+        <TabsList className="workspace-tabs-list h-auto w-full justify-start rounded-none border-b border-gold-soft/10 bg-[rgba(7,9,13,0.72)] p-0 backdrop-blur-md">
+          <TabsTrigger value="overview" className="workspace-tab">
             Overview
           </TabsTrigger>
-          <TabsTrigger value="diagram" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+          <TabsTrigger value="diagram" className="workspace-tab">
             Diagram
           </TabsTrigger>
-          <TabsTrigger value="components" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+          <TabsTrigger value="components" className="workspace-tab">
             Components
           </TabsTrigger>
-          <TabsTrigger value="decisions" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+          <TabsTrigger value="decisions" className="workspace-tab">
             Decisions
           </TabsTrigger>
-          <TabsTrigger value="report" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+          <TabsTrigger value="report" className="workspace-tab">
             Report
           </TabsTrigger>
-          <TabsTrigger value="specification" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+          <TabsTrigger value="specification" className="workspace-tab">
             Specification
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 overflow-auto">
+        <div className="workspace-scrollbar flex-1 overflow-auto">
           <div className="px-6 py-6">
             <TabsContent value="overview" className="mt-0">
               <ArchitectureOverview architecture={architecture} />
