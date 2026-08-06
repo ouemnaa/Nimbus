@@ -10,6 +10,7 @@ from app.repositories.architecture_version_repository import (
 from app.repositories.change_request_repository import ChangeRequestRepository
 from app.repositories.chat_message_repository import ChatMessageRepository
 from app.repositories.project_repository import ProjectRepository
+from app.services.agent_client import SolutionArchitectAgentClient
 from app.services.project_service import ProjectService
 from app.services.version_service import VersionService
 
@@ -29,6 +30,7 @@ def get_project_service(
         ArchitectureVersionRepository(database),
         ChatMessageRepository(database),
         ChangeRequestRepository(database),
+        SolutionArchitectAgentClient(),
     )
 
 

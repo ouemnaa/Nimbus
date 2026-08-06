@@ -1,8 +1,9 @@
 # Nimbus Backend
 
 FastAPI and MongoDB persistence service for Nimbus projects, architecture versions,
-chat history, and change requests. This service does not yet orchestrate the
-Solution Architect Agent, generate Terraform, or implement authentication.
+chat history, and change requests. The backend calls the separate Solution
+Architect Agent over HTTP to create initial architecture workspaces. It does not
+yet generate Terraform or implement authentication.
 
 ## Prerequisites
 
@@ -26,6 +27,7 @@ Edit `.env` and set the Atlas connection string:
 ```dotenv
 MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-host>/?retryWrites=true&w=majority
 MONGODB_DB_NAME=nimbus_dev
+SOLUTION_ARCHITECT_AGENT_URL=http://localhost:8001
 ```
 
 Never commit `.env`. It is ignored by this service's `.gitignore`, while
@@ -50,6 +52,34 @@ the connection string is never logged.
 
 API documentation is available at <http://localhost:8000/docs>.
 
+## Create a project with the agent
+
+Start the Solution Architect Agent on port `8001`, then start this backend on
+port `8000`. The frontend should call this backend endpoint instead of calling
+the agent directly:
+
+```powershell
+$body = @{
+  requirement = "Deploy a low-cost gaming platform with a platform backend, game backends and PostgreSQL on AWS."
+  context = @{
+    environment = "development"
+    budgetPreference = "low"
+    cloud = "AWS"
+  }
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/projects `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The backend calls
+`$env:SOLUTION_ARCHITECT_AGENT_URL/api/v1/architectures/analyze`, saves the
+project, version `1.0.0`, and initial chat messages in MongoDB, then returns the
+full workspace response.
+
 ## Health checks
 
 ```powershell
@@ -62,8 +92,8 @@ a safe `503` response when the database is unavailable.
 
 ## Create a mock project
 
-This temporary endpoint persists a project, architecture version `1.0.0`, and
-the initial user and assistant messages:
+This development fixture persists a project, architecture version `1.0.0`, and
+the initial user and assistant messages without calling the agent:
 
 ```powershell
 $body = @{
@@ -106,10 +136,12 @@ Invoke-RestMethod -Method Delete http://localhost:8000/api/projects/<project-id>
 python -m pytest
 ```
 
-The API contract tests use injected fake services, so they do not need a live
-MongoDB instance. Atlas integration can be tested separately by configuring a
-dedicated test database in `.env`, starting the backend, and calling the mock
-project endpoint. Do not point destructive integration tests at production data.
+The API contract tests use injected fake services and mocked agent clients, so
+they do not need a live MongoDB instance or a running Solution Architect Agent.
+Atlas integration can be tested separately by configuring a dedicated test
+database in `.env`, starting the agent and backend, and calling
+`POST /api/projects`. Do not point destructive integration tests at production
+data.
 
 ## Collections and indexes
 

@@ -1,16 +1,8 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
-
 from app.schemas.common import APIModel, ProjectStatus
 from app.utils.object_id import stringify_object_id
-
-
-class GenerationMetadata(APIModel):
-    provider: str
-    model: str
-    generation_duration_ms: int = Field(ge=0)
 
 
 class ArchitectureVersionResponse(APIModel):
@@ -24,7 +16,7 @@ class ArchitectureVersionResponse(APIModel):
     simple_diagram_mermaid: str | None
     advanced_diagram_mermaid: str | None
     change_summary: list[str]
-    metadata: GenerationMetadata
+    metadata: dict[str, Any]
     created_at: datetime
 
     @classmethod

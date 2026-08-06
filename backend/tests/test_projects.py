@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
+from app.core.errors import AgentResponseError, AgentUnavailableError
 from tests.conftest import PROJECT_ID
 
 
@@ -40,6 +41,85 @@ def test_mock_project_creation_returns_workspace(
     assert len(body["versions"]) == 1
     assert len(body["messages"]) == 2
     service.create_mock_project.assert_awaited_once()
+
+
+def test_project_creation_returns_workspace(
+    client: TestClient, service: AsyncMock
+) -> None:
+    response = client.post(
+        "/api/projects",
+        json={
+            "requirement": MOCK_REQUEST["requirement"],
+            "context": MOCK_REQUEST["context"],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["project"]["id"] == PROJECT_ID
+    assert body["currentVersion"]["version"] == "1.0.0"
+    service.create_project.assert_awaited_once()
+
+
+def test_project_creation_empty_requirement_returns_validation_error(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/projects",
+        json={
+            "requirement": "   ",
+            "context": MOCK_REQUEST["context"],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_project_creation_agent_unavailable_returns_safe_error(
+    client: TestClient, service: AsyncMock
+) -> None:
+    service.create_project.side_effect = AgentUnavailableError("http://localhost:8001")
+
+    response = client.post(
+        "/api/projects",
+        json={
+            "requirement": MOCK_REQUEST["requirement"],
+            "context": MOCK_REQUEST["context"],
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "agent_unavailable",
+            "message": (
+                "Could not reach the Solution Architect Agent. "
+                "Make sure it is running on http://localhost:8001."
+            ),
+        }
+    }
+
+
+def test_project_creation_invalid_agent_response_returns_safe_error(
+    client: TestClient, service: AsyncMock
+) -> None:
+    service.create_project.side_effect = AgentResponseError()
+
+    response = client.post(
+        "/api/projects",
+        json={
+            "requirement": MOCK_REQUEST["requirement"],
+            "context": MOCK_REQUEST["context"],
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {
+            "code": "agent_invalid_response",
+            "message": "Solution Architect Agent returned an invalid response.",
+        }
+    }
 
 
 def test_project_workspace_contract(client: TestClient) -> None:

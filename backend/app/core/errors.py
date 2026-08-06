@@ -27,3 +27,31 @@ class DatabaseUnavailableError(AppError):
             status_code=503,
             code="database_unavailable",
         )
+
+
+class AgentUnavailableError(AppError):
+    def __init__(self, agent_url: str) -> None:
+        super().__init__(
+            "Could not reach the Solution Architect Agent. "
+            f"Make sure it is running on {agent_url}.",
+            status_code=503,
+            code="agent_unavailable",
+        )
+
+
+class AgentResponseError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Solution Architect Agent returned an invalid response.",
+            status_code=502,
+            code="agent_invalid_response",
+        )
+
+
+class AgentRequestError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Solution Architect Agent could not analyze the requirement.",
+            status_code=502,
+            code="agent_request_failed",
+        )

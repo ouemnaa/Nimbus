@@ -3,7 +3,7 @@ from typing import Any
 
 from bson import ObjectId
 
-from app.core.errors import NotFoundError
+from app.core.errors import DatabaseUnavailableError, NotFoundError
 from app.models.architecture_version import build_architecture_version_document
 from app.models.chat_message import build_chat_message_document
 from app.models.project import build_project_document
@@ -16,8 +16,9 @@ from app.repositories.project_repository import ProjectRepository
 from app.schemas.architecture_version import ArchitectureVersionResponse
 from app.schemas.chat_message import ChatMessageResponse
 from app.schemas.common import ChatIntent, ChatRole, ProjectStatus
-from app.schemas.project import MockProjectCreate, ProjectResponse
+from app.schemas.project import MockProjectCreate, ProjectCreate, ProjectResponse
 from app.schemas.workspace import ProjectWorkspaceResponse
+from app.services.agent_client import SolutionArchitectAgentClient
 from app.utils.slug import slugify
 
 
@@ -28,11 +29,13 @@ class ProjectService:
         version_repository: ArchitectureVersionRepository,
         message_repository: ChatMessageRepository,
         change_request_repository: ChangeRequestRepository,
+        agent_client: SolutionArchitectAgentClient | None = None,
     ) -> None:
         self.projects = project_repository
         self.versions = version_repository
         self.messages = message_repository
         self.change_requests = change_request_repository
+        self.agent_client = agent_client
 
     async def list_projects(self) -> list[ProjectResponse]:
         documents = await self.projects.list_all()
@@ -48,6 +51,89 @@ class ProjectService:
             self.messages.list_for_project(project_id),
         )
         return self._workspace_from_documents(project, versions, messages)
+
+    async def create_project(self, request: ProjectCreate) -> ProjectWorkspaceResponse:
+        agent_client = self.agent_client or SolutionArchitectAgentClient()
+        agent_result = await agent_client.analyze_requirement(
+            request.requirement,
+            request.context.model_dump(),
+        )
+
+        architecture = agent_result.architecture
+        status = self._status_from_architecture(architecture)
+        title = self._title_from_architecture_or_requirement(
+            architecture,
+            request.requirement,
+        )
+
+        project_id: ObjectId | None = None
+        try:
+            slug = await self._unique_slug(title)
+            project_document = build_project_document(
+                title=title,
+                slug=slug,
+                initial_requirement=request.requirement,
+                context=request.context.model_dump(by_alias=True),
+                status=status.value,
+            )
+            project = await self.projects.create(project_document)
+            project_id = project["_id"]
+
+            version_document = build_architecture_version_document(
+                project_id=project_id,
+                version="1.0.0",
+                status=status.value,
+                architecture=architecture,
+                report_markdown=agent_result.report_markdown,
+                simple_diagram_mermaid=architecture.get("simpleDiagramMermaid")
+                or architecture.get("simple_diagram_mermaid"),
+                advanced_diagram_mermaid=architecture.get("advancedDiagramMermaid")
+                or architecture.get("advanced_diagram_mermaid"),
+                change_summary=["Generated the initial architecture."],
+                metadata=agent_result.metadata,
+            )
+            version = await self.versions.create(version_document)
+            version_id = version["_id"]
+
+            project = await self.projects.set_current_version(
+                project_id,
+                version_id,
+                status.value,
+            )
+            if project is None:
+                raise NotFoundError("Project")
+
+            user_message = await self.messages.create(
+                build_chat_message_document(
+                    project_id=project_id,
+                    architecture_version_id=None,
+                    role=ChatRole.USER.value,
+                    content=request.requirement,
+                    intent=ChatIntent.INITIAL.value,
+                    architecture_changed=False,
+                )
+            )
+            assistant_message = await self.messages.create(
+                build_chat_message_document(
+                    project_id=project_id,
+                    architecture_version_id=version_id,
+                    role=ChatRole.ASSISTANT.value,
+                    content=(
+                        "The initial architecture has been generated and is ready "
+                        "for review."
+                    ),
+                    intent=ChatIntent.SYSTEM.value,
+                    architecture_changed=True,
+                )
+            )
+        except Exception:
+            if project_id is not None:
+                await self._best_effort_delete_project(project_id)
+            raise DatabaseUnavailableError() from None
+
+        return self._workspace_from_documents(
+            project, [version], [user_message, assistant_message]
+        )
 
     async def create_mock_project(
         self, request: MockProjectCreate
@@ -132,6 +218,13 @@ class ProjectService:
             self.messages.delete_for_project(project_id),
             self.change_requests.delete_for_project(project_id),
         )
+
+    async def _best_effort_delete_project(self, project_id: ObjectId) -> None:
+        try:
+            await self._delete_related(project_id)
+            await self.projects.delete(project_id)
+        except Exception:
+            return None
 
     async def _unique_slug(self, title: str) -> str:
         base = slugify(title)
@@ -235,3 +328,42 @@ class ProjectService:
             "    ALB --> ECS[ECS Application Service]\n"
             "    ECS --> RDS[(RDS PostgreSQL)]"
         )
+
+    @staticmethod
+    def _status_from_architecture(architecture: dict[str, Any]) -> ProjectStatus:
+        status = architecture.get("status")
+        if status == ProjectStatus.NEEDS_CLARIFICATION.value:
+            return ProjectStatus.NEEDS_CLARIFICATION
+        if status == ProjectStatus.UNSUPPORTED.value:
+            return ProjectStatus.UNSUPPORTED
+        return ProjectStatus.READY_FOR_REVIEW
+
+    @staticmethod
+    def _title_from_architecture_or_requirement(
+        architecture: dict[str, Any], requirement: str
+    ) -> str:
+        title = architecture.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()[:200]
+
+        words = [
+            word.strip(".,:;!?()[]{}").lower()
+            for word in requirement.split()
+        ]
+        ignored = {
+            "a",
+            "an",
+            "and",
+            "for",
+            "i",
+            "need",
+            "on",
+            "the",
+            "to",
+            "want",
+            "with",
+        }
+        title_words = [word for word in words if word and word not in ignored][:4]
+        if not title_words:
+            return "Cloud Architecture"
+        return f"{' '.join(title_words).title()} Architecture"[:200]

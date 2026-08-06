@@ -7,10 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_project_service
 from app.main import create_app
-from app.schemas.architecture_version import (
-    ArchitectureVersionResponse,
-    GenerationMetadata,
-)
+from app.schemas.architecture_version import ArchitectureVersionResponse
 from app.schemas.chat_message import ChatMessageResponse
 from app.schemas.common import ChatIntent, ChatRole, ProjectStatus
 from app.schemas.project import ProjectResponse
@@ -67,11 +64,11 @@ def workspace() -> ProjectWorkspaceResponse:
         simple_diagram_mermaid="flowchart LR\nUser --> App",
         advanced_diagram_mermaid=None,
         change_summary=["Created the initial architecture."],
-        metadata=GenerationMetadata(
-            provider="mock",
-            model="backend-development-fixture",
-            generation_duration_ms=0,
-        ),
+        metadata={
+            "provider": "mock",
+            "model": "backend-development-fixture",
+            "generationDurationMs": 0,
+        },
         created_at=now,
     )
     messages = [
@@ -107,6 +104,7 @@ def workspace() -> ProjectWorkspaceResponse:
 @pytest.fixture
 def service(workspace: ProjectWorkspaceResponse) -> AsyncMock:
     mock = AsyncMock(spec=ProjectService)
+    mock.create_project.return_value = workspace
     mock.create_mock_project.return_value = workspace
     mock.get_workspace.return_value = workspace
     mock.list_projects.return_value = [workspace.project]

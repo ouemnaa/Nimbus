@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Response, status
 
 from app.api.dependencies import get_project_service
-from app.schemas.project import MockProjectCreate, ProjectResponse
+from app.schemas.project import MockProjectCreate, ProjectCreate, ProjectResponse
 from app.schemas.workspace import ProjectWorkspaceResponse
 from app.services.project_service import ProjectService
 from app.utils.object_id import parse_object_id
@@ -15,6 +15,18 @@ async def list_projects(
     service: ProjectService = Depends(get_project_service),
 ) -> list[ProjectResponse]:
     return await service.list_projects()
+
+
+@router.post(
+    "",
+    response_model=ProjectWorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_project(
+    request: ProjectCreate,
+    service: ProjectService = Depends(get_project_service),
+) -> ProjectWorkspaceResponse:
+    return await service.create_project(request)
 
 
 @router.get("/{project_id}", response_model=ProjectWorkspaceResponse)

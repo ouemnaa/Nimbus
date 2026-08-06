@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.common import APIModel, ProjectStatus
 from app.utils.object_id import stringify_object_id
@@ -17,6 +17,19 @@ class MockProjectCreate(APIModel):
     title: str = Field(min_length=1, max_length=200)
     requirement: str = Field(min_length=1, max_length=20_000)
     context: ProjectContext
+
+
+class ProjectCreate(APIModel):
+    requirement: str = Field(min_length=1, max_length=20_000)
+    context: ProjectContext
+
+    @field_validator("requirement")
+    @classmethod
+    def validate_requirement(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Requirement must not be empty.")
+        return stripped
 
 
 class ProjectResponse(APIModel):
