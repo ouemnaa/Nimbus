@@ -8,9 +8,9 @@ import { mockProjects } from "@/data/mockArchitecture";
 import { architectureService as demoArchitectureService } from "@/services/mockArchitectureService";
 import {
   analyzeArchitecture,
-  ARCHITECT_AGENT_URL,
+  NIMBUS_BACKEND_URL,
 } from "@/services/architectureService";
-import { RequirementContext } from "@/types/architecture";
+import { AnalyzeArchitectureResponse, RequirementContext } from "@/types/architecture";
 import { BoltStyleChat } from "@/components/ui/bolt-style-chat";
 import AgentActivity from "@/components/agent/AgentActivity";
 import { Button } from "@/components/ui/button";
@@ -27,12 +27,12 @@ export default function HomePage() {
   } | null>(null);
 
   const saveAndOpenWorkspace = (
-    response: Awaited<ReturnType<typeof analyzeArchitecture>>,
+    response: AnalyzeArchitectureResponse & { projectId?: string },
     requirement: string
   ) => {
     localStorage.setItem("nimbus:lastArchitecture", JSON.stringify(response));
     localStorage.setItem("nimbus:lastRequirement", requirement);
-    const projectId = response.architecture.architecture_id || "latest";
+    const projectId = response.projectId || "latest";
     navigate(`/workspace/${encodeURIComponent(projectId)}`);
   };
 
@@ -58,7 +58,7 @@ export default function HomePage() {
       setError(
         error instanceof Error
           ? error.message
-          : `Could not reach the Solution Architect Agent. Make sure the agent is running on ${ARCHITECT_AGENT_URL || "http://localhost:8001"}.`
+          : `Could not reach the Nimbus backend. Make sure it is running on ${NIMBUS_BACKEND_URL}.`
       );
       return false;
     } finally {

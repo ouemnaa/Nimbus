@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_project_service, get_version_service
 from app.schemas.architecture_version import ArchitectureVersionResponse
+from app.schemas.workspace import ProjectWorkspaceResponse
 from app.services.project_service import ProjectService
 from app.services.version_service import VersionService
 from app.utils.object_id import parse_object_id
@@ -34,3 +35,27 @@ async def get_architecture_version(
 
         raise NotFoundError("Architecture version")
     return version
+
+
+@router.post("/{version_id}/accept", response_model=ProjectWorkspaceResponse)
+async def accept_architecture_draft(
+    project_id: str,
+    version_id: str,
+    service: ProjectService = Depends(get_project_service),
+) -> ProjectWorkspaceResponse:
+    return await service.accept_draft(
+        parse_object_id(project_id, "project_id"),
+        parse_object_id(version_id, "version_id"),
+    )
+
+
+@router.post("/{version_id}/discard", response_model=ProjectWorkspaceResponse)
+async def discard_architecture_draft(
+    project_id: str,
+    version_id: str,
+    service: ProjectService = Depends(get_project_service),
+) -> ProjectWorkspaceResponse:
+    return await service.discard_draft(
+        parse_object_id(project_id, "project_id"),
+        parse_object_id(version_id, "version_id"),
+    )

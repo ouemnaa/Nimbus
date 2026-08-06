@@ -55,3 +55,12 @@ class AgentRequestError(AppError):
             status_code=502,
             code="agent_request_failed",
         )
+
+
+class InvalidOperationError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            message,
+            status_code=409,
+            code="invalid_operation",
+        )

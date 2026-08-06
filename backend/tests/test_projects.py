@@ -29,6 +29,21 @@ def test_invalid_project_id_returns_safe_error(client: TestClient) -> None:
     }
 
 
+def test_send_message_invalid_project_id_returns_safe_error(client: TestClient) -> None:
+    response = client.post(
+        "/api/projects/not-an-object-id/messages",
+        json={"message": "Why this architecture?"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": {
+            "code": "invalid_object_id",
+            "message": "Invalid project_id.",
+        }
+    }
+
+
 def test_mock_project_creation_returns_workspace(
     client: TestClient, service: AsyncMock
 ) -> None:

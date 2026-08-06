@@ -9,12 +9,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { mockArchitecture } from "@/data/mockArchitecture";
 import { useArchitecture } from "@/hooks/useArchitecture";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import {
+  acceptDraftVersion,
+  discardDraftVersion,
+  getProjectWorkspace,
+  sendProjectMessage,
+} from "@/services/architectureService";
 import type {
   AnalyzeArchitectureResponse,
+  BackendArchitectureVersion,
   CanonicalArchitecture,
+  ProjectWorkspaceResponse,
 } from "@/types/architecture";
-import { ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
 function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
@@ -100,11 +107,28 @@ function prepareArchitecture(
   };
 }
 
+function prepareWorkspaceArchitecture(
+  workspace: ProjectWorkspaceResponse
+): CanonicalArchitecture {
+  const version = workspace.currentVersion;
+  if (!version) {
+    return mockArchitecture;
+  }
+
+  return prepareArchitecture({
+    architecture: version.architecture,
+    report_markdown: version.reportMarkdown,
+    metadata: version.metadata as AnalyzeArchitectureResponse["metadata"],
+  });
+}
+
 export default function WorkspacePage() {
   const { projectId } = useParams();
   const [storedResponse] = useState(loadStoredArchitecture);
   const initialArchitecture = prepareArchitecture(storedResponse);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftVersion, setDraftVersion] = useState<BackendArchitectureVersion | null>(null);
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
     {
       role: "user",
@@ -120,31 +144,123 @@ export default function WorkspacePage() {
   const [followUp, setFollowUp] = useState("");
   const { architecture, status, updateStatus, updateArchitecture } =
     useArchitecture(initialArchitecture);
-  const [savedStatus, setSavedStatus] = useLocalStorage(
-    `architecture-status-${projectId}`,
-    status
-  );
 
-  // Load saved status on mount
   useEffect(() => {
-    if (savedStatus) {
-      updateStatus(savedStatus);
+    if (!projectId) {
+      return;
     }
-  }, []);
 
-  // Save status to localStorage
-  useEffect(() => {
-    setSavedStatus(status);
-  }, [status, setSavedStatus]);
+    let isMounted = true;
+    setIsAnalyzing(true);
+    setError(null);
 
-  const handleFollowUp = () => {
-    if (followUp.trim()) {
-      setMessages([
-        ...messages,
-        { role: "user", content: followUp },
-        { role: "assistant", content: "Follow-up noted. Architecture updated locally." },
-      ]);
-      setFollowUp("");
+    getProjectWorkspace(projectId)
+      .then((workspace) => {
+        if (!isMounted) {
+          return;
+        }
+        const loadedArchitecture = prepareWorkspaceArchitecture(workspace);
+        updateArchitecture(loadedArchitecture);
+        updateStatus(loadedArchitecture.status);
+        setMessages(
+          workspace.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        setDraftVersion(
+          workspace.versions.find((version) => version.status === "DRAFT_REVISION") ||
+            null
+        );
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setError(error instanceof Error ? error.message : "Could not load workspace.");
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsAnalyzing(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [projectId, updateArchitecture, updateStatus]);
+
+  const handleFollowUp = async () => {
+    const trimmed = followUp.trim();
+    if (!trimmed || !projectId) {
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError(null);
+    setFollowUp("");
+
+    try {
+      const response = await sendProjectMessage(projectId, trimmed);
+      setMessages(
+        response.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        }))
+      );
+      if (response.architectureChanged && response.draftVersion) {
+        setDraftVersion(response.draftVersion);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not send message.");
+      setFollowUp(trimmed);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const applyWorkspace = (workspace: ProjectWorkspaceResponse) => {
+    const loadedArchitecture = prepareWorkspaceArchitecture(workspace);
+    updateArchitecture(loadedArchitecture);
+    updateStatus(loadedArchitecture.status);
+    setMessages(
+      workspace.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      }))
+    );
+    setDraftVersion(
+      workspace.versions.find((version) => version.status === "DRAFT_REVISION") ||
+        null
+    );
+  };
+
+  const handleAcceptDraft = async () => {
+    if (!projectId || !draftVersion) {
+      return;
+    }
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      applyWorkspace(await acceptDraftVersion(projectId, draftVersion.id));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not accept draft.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!projectId || !draftVersion) {
+      return;
+    }
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      applyWorkspace(await discardDraftVersion(projectId, draftVersion.id));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not discard draft.");
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -185,6 +301,40 @@ export default function WorkspacePage() {
             </motion.div>
 
             {/* Messages */}
+            {error && (
+              <Card className="border border-red-400/25 bg-red-950/20 p-3 text-sm text-red-100 shadow-none">
+                <div className="flex gap-2">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              </Card>
+            )}
+
+            {draftVersion && (
+              <Card className="border border-gold-soft/30 bg-gold-soft/10 p-3 shadow-none">
+                <p className="text-sm font-semibold text-foreground">
+                  Draft architecture update created
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Version {draftVersion.version} is ready for review.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" onClick={handleAcceptDraft} disabled={isAnalyzing}>
+                    Accept changes
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDiscardDraft}
+                    disabled={isAnalyzing}
+                  >
+                    Discard changes
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Messages */}
             {messages.map((msg, idx) => (
               <motion.div
                 key={idx}
@@ -220,7 +370,7 @@ export default function WorkspacePage() {
             />
             <Button
               onClick={handleFollowUp}
-              disabled={!followUp.trim()}
+              disabled={!followUp.trim() || isAnalyzing}
               className="w-full gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-bg-main hover:shadow-[0_0_15px_rgba(228,187,150,0.3)] transition-all duration-300 border-none"
             >
               <ArrowRight className="w-4 h-4" />

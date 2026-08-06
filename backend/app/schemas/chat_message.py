@@ -1,8 +1,25 @@
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field, field_validator
+
+from app.schemas.architecture_version import ArchitectureVersionResponse
+from app.schemas.change_request import ChangeRequestResponse
 from app.schemas.common import APIModel, ChatIntent, ChatRole
+from app.schemas.project import ProjectResponse
 from app.utils.object_id import stringify_object_id
+
+
+class ProjectMessageCreate(APIModel):
+    message: str = Field(min_length=1, max_length=20_000)
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Message must not be empty.")
+        return stripped
 
 
 class ChatMessageResponse(APIModel):
@@ -24,3 +41,15 @@ class ChatMessageResponse(APIModel):
             values.get("architectureVersionId")
         )
         return cls.model_validate(values)
+
+
+class ProjectMessageResponse(APIModel):
+    intent: ChatIntent
+    architecture_changed: bool
+    answer: str
+    messages: list[ChatMessageResponse]
+    project: ProjectResponse | None = None
+    current_version: ArchitectureVersionResponse | None = None
+    draft_version: ArchitectureVersionResponse | None = None
+    change_request: ChangeRequestResponse | None = None
+    change_summary: list[str] = Field(default_factory=list)

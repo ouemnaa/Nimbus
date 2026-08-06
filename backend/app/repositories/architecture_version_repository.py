@@ -2,7 +2,7 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo import ASCENDING
+from pymongo import ASCENDING, ReturnDocument
 
 from app.models.architecture_version import COLLECTION_NAME
 
@@ -26,3 +26,12 @@ class ArchitectureVersionRepository:
     async def delete_for_project(self, project_id: ObjectId) -> int:
         result = await self.collection.delete_many({"projectId": project_id})
         return result.deleted_count
+
+    async def set_status(
+        self, version_id: ObjectId, status: str
+    ) -> dict[str, Any] | None:
+        return await self.collection.find_one_and_update(
+            {"_id": version_id},
+            {"$set": {"status": status}},
+            return_document=ReturnDocument.AFTER,
+        )

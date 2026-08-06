@@ -2,7 +2,7 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo import ASCENDING
+from pymongo import ASCENDING, DESCENDING
 
 from app.models.chat_message import COLLECTION_NAME
 
@@ -19,6 +19,14 @@ class ChatMessageRepository:
         return await self.collection.find({"projectId": project_id}).sort(
             "createdAt", ASCENDING
         ).to_list(None)
+
+    async def list_recent_for_project(
+        self, project_id: ObjectId, limit: int
+    ) -> list[dict[str, Any]]:
+        documents = await self.collection.find({"projectId": project_id}).sort(
+            "createdAt", DESCENDING
+        ).to_list(limit)
+        return list(reversed(documents))
 
     async def delete_for_project(self, project_id: ObjectId) -> int:
         result = await self.collection.delete_many({"projectId": project_id})

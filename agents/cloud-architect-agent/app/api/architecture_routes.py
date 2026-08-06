@@ -1,5 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from ..schemas.requests import AnalyzeRequest, AnalyzeResponse
+from ..schemas.requests import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    FollowUpRequest,
+    FollowUpResponse,
+)
 from ..services.architecture_service import ArchitectureService
 from ..llm.factory import get_llm_provider
 from ..core.exceptions import LLMProviderError, ValidationError
@@ -17,6 +22,19 @@ async def analyze_architecture(
 ):
     try:
         return await service.analyze_requirement(request.requirement, request.context)
+    except (LLMProviderError, ValidationError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An internal error occurred")
+
+
+@router.post("/follow-up", response_model=FollowUpResponse)
+async def follow_up_architecture(
+    request: FollowUpRequest,
+    service: ArchitectureService = Depends(get_architecture_service)
+):
+    try:
+        return await service.follow_up(request)
     except (LLMProviderError, ValidationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

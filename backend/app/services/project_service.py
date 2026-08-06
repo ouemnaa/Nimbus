@@ -3,8 +3,9 @@ from typing import Any
 
 from bson import ObjectId
 
-from app.core.errors import DatabaseUnavailableError, NotFoundError
+from app.core.errors import DatabaseUnavailableError, InvalidOperationError, NotFoundError
 from app.models.architecture_version import build_architecture_version_document
+from app.models.change_request import build_change_request_document
 from app.models.chat_message import build_chat_message_document
 from app.models.project import build_project_document
 from app.repositories.architecture_version_repository import (
@@ -14,8 +15,13 @@ from app.repositories.change_request_repository import ChangeRequestRepository
 from app.repositories.chat_message_repository import ChatMessageRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.architecture_version import ArchitectureVersionResponse
-from app.schemas.chat_message import ChatMessageResponse
-from app.schemas.common import ChatIntent, ChatRole, ProjectStatus
+from app.schemas.change_request import ChangeRequestResponse
+from app.schemas.chat_message import (
+    ChatMessageResponse,
+    ProjectMessageCreate,
+    ProjectMessageResponse,
+)
+from app.schemas.common import ChangeRequestStatus, ChatIntent, ChatRole, ProjectStatus
 from app.schemas.project import MockProjectCreate, ProjectCreate, ProjectResponse
 from app.schemas.workspace import ProjectWorkspaceResponse
 from app.services.agent_client import SolutionArchitectAgentClient
@@ -51,6 +57,181 @@ class ProjectService:
             self.messages.list_for_project(project_id),
         )
         return self._workspace_from_documents(project, versions, messages)
+
+    async def send_message(
+        self, project_id: ObjectId, request: ProjectMessageCreate
+    ) -> ProjectMessageResponse:
+        project = await self.projects.get_by_id(project_id)
+        if project is None:
+            raise NotFoundError("Project")
+
+        current_version_id = project.get("currentVersionId")
+        if current_version_id is None:
+            raise NotFoundError("Current architecture version")
+
+        current_version = await self.versions.get_by_id(current_version_id)
+        if current_version is None:
+            raise NotFoundError("Current architecture version")
+
+        recent_messages = await self.messages.list_recent_for_project(project_id, 8)
+        user_message = await self.messages.create(
+            build_chat_message_document(
+                project_id=project_id,
+                architecture_version_id=current_version_id,
+                role=ChatRole.USER.value,
+                content=request.message,
+                intent=ChatIntent.INITIAL.value,
+                architecture_changed=False,
+            )
+        )
+
+        agent_client = self.agent_client or SolutionArchitectAgentClient()
+        agent_result = await agent_client.follow_up(
+            session_id=str(project_id),
+            current_architecture=current_version["architecture"],
+            current_report_markdown=current_version.get("reportMarkdown"),
+            conversation_summary=None,
+            messages=[
+                {"role": item["role"], "content": item["content"]}
+                for item in recent_messages
+            ],
+            user_message=request.message,
+        )
+
+        intent = ChatIntent(agent_result.intent)
+        assistant_message = await self.messages.create(
+            build_chat_message_document(
+                project_id=project_id,
+                architecture_version_id=current_version_id,
+                role=ChatRole.ASSISTANT.value,
+                content=agent_result.answer,
+                intent=intent.value,
+                architecture_changed=agent_result.architecture_changed,
+            )
+        )
+
+        if not agent_result.architecture_changed:
+            return ProjectMessageResponse(
+                intent=intent,
+                architecture_changed=False,
+                answer=agent_result.answer,
+                project=ProjectResponse.from_document(project),
+                current_version=ArchitectureVersionResponse.from_document(
+                    current_version
+                ),
+                messages=[
+                    ChatMessageResponse.from_document(item)
+                    for item in [*recent_messages, user_message, assistant_message]
+                ],
+            )
+
+        new_version_string = agent_result.new_version or self._next_minor_version(
+            current_version["version"]
+        )
+        draft_document = build_architecture_version_document(
+            project_id=project_id,
+            version=new_version_string,
+            parent_version_id=current_version_id,
+            status=ProjectStatus.DRAFT_REVISION.value,
+            architecture=agent_result.architecture or {},
+            report_markdown=agent_result.report_markdown or "",
+            simple_diagram_mermaid=(agent_result.architecture or {}).get(
+                "simpleDiagramMermaid"
+            )
+            or (agent_result.architecture or {}).get("simple_diagram_mermaid"),
+            advanced_diagram_mermaid=(agent_result.architecture or {}).get(
+                "advancedDiagramMermaid"
+            )
+            or (agent_result.architecture or {}).get("advanced_diagram_mermaid"),
+            change_summary=agent_result.change_summary,
+            metadata=agent_result.metadata,
+        )
+        draft_version = await self.versions.create(draft_document)
+        change_request = await self.change_requests.create(
+            build_change_request_document(
+                project_id=project_id,
+                from_version_id=current_version_id,
+                to_version_id=draft_version["_id"],
+                user_message=request.message,
+                change_summary=agent_result.change_summary,
+                status=ChangeRequestStatus.PENDING.value,
+            )
+        )
+
+        return ProjectMessageResponse(
+            intent=intent,
+            architecture_changed=True,
+            answer=agent_result.answer,
+            draft_version=ArchitectureVersionResponse.from_document(draft_version),
+            change_request=ChangeRequestResponse.from_document(change_request),
+            change_summary=agent_result.change_summary,
+            messages=[
+                ChatMessageResponse.from_document(item)
+                for item in [*recent_messages, user_message, assistant_message]
+            ],
+        )
+
+    async def accept_draft(
+        self, project_id: ObjectId, version_id: ObjectId
+    ) -> ProjectWorkspaceResponse:
+        version = await self._get_project_draft_version(project_id, version_id)
+        updated_version = await self.versions.set_status(
+            version_id, ProjectStatus.READY_FOR_REVIEW.value
+        )
+        if updated_version is None:
+            raise NotFoundError("Architecture version")
+
+        project = await self.projects.set_current_version(
+            project_id,
+            version_id,
+            ProjectStatus.READY_FOR_REVIEW.value,
+        )
+        if project is None:
+            raise NotFoundError("Project")
+
+        change_request = await self.change_requests.get_pending_for_version(
+            project_id, version_id
+        )
+        if change_request is not None:
+            await self.change_requests.set_status(
+                change_request["_id"], ChangeRequestStatus.ACCEPTED.value
+            )
+
+        await self.messages.create(
+            build_chat_message_document(
+                project_id=project_id,
+                architecture_version_id=version_id,
+                role=ChatRole.ASSISTANT.value,
+                content=f"Draft architecture version {version['version']} accepted.",
+                intent=ChatIntent.SYSTEM.value,
+                architecture_changed=True,
+            )
+        )
+        return await self.get_workspace(project_id)
+
+    async def discard_draft(
+        self, project_id: ObjectId, version_id: ObjectId
+    ) -> ProjectWorkspaceResponse:
+        version = await self._get_project_draft_version(project_id, version_id)
+        change_request = await self.change_requests.get_pending_for_version(
+            project_id, version_id
+        )
+        if change_request is not None:
+            await self.change_requests.set_status(
+                change_request["_id"], ChangeRequestStatus.DISCARDED.value
+            )
+
+        await self.messages.create(
+            build_chat_message_document(
+                project_id=project_id,
+                architecture_version_id=version_id,
+                role=ChatRole.ASSISTANT.value,
+                content=f"Draft architecture version {version['version']} discarded.",
+                intent=ChatIntent.SYSTEM.value,
+                architecture_changed=False,
+            )
+        )
+        return await self.get_workspace(project_id)
 
     async def create_project(self, request: ProjectCreate) -> ProjectWorkspaceResponse:
         agent_client = self.agent_client or SolutionArchitectAgentClient()
@@ -225,6 +406,32 @@ class ProjectService:
             await self.projects.delete(project_id)
         except Exception:
             return None
+
+    async def _get_project_draft_version(
+        self, project_id: ObjectId, version_id: ObjectId
+    ) -> dict[str, Any]:
+        project = await self.projects.get_by_id(project_id)
+        if project is None:
+            raise NotFoundError("Project")
+
+        version = await self.versions.get_by_id(version_id)
+        if version is None or version.get("projectId") != project_id:
+            raise NotFoundError("Architecture version")
+        if version.get("status") != ProjectStatus.DRAFT_REVISION.value:
+            raise InvalidOperationError("Architecture version is not a draft revision.")
+        return version
+
+    @staticmethod
+    def _next_minor_version(version: str) -> str:
+        parts = version.split(".")
+        if len(parts) != 3:
+            return "1.1.0"
+        try:
+            major = int(parts[0])
+            minor = int(parts[1])
+        except ValueError:
+            return "1.1.0"
+        return f"{major}.{minor + 1}.0"
 
     async def _unique_slug(self, title: str) -> str:
         base = slugify(title)
