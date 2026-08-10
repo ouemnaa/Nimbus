@@ -41,9 +41,8 @@ function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
 }
 
 function extractMermaidDiagrams(markdown: string): string[] {
-  return Array.from(
-    markdown.matchAll(/```mermaid\s*([\s\S]*?)```/gi),
-    (match) => match[1].trim()
+  return Array.from(markdown.matchAll(/```mermaid\s*([\s\S]*?)```/gi), match =>
+    match[1].trim()
   );
 }
 
@@ -128,8 +127,11 @@ export default function WorkspacePage() {
   const initialArchitecture = prepareArchitecture(storedResponse);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draftVersion, setDraftVersion] = useState<BackendArchitectureVersion | null>(null);
-  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
+  const [draftVersion, setDraftVersion] =
+    useState<BackendArchitectureVersion | null>(null);
+  const [messages, setMessages] = useState<
+    Array<{ role: string; content: string }>
+  >([
     {
       role: "user",
       content:
@@ -155,7 +157,7 @@ export default function WorkspacePage() {
     setError(null);
 
     getProjectWorkspace(projectId)
-      .then((workspace) => {
+      .then(workspace => {
         if (!isMounted) {
           return;
         }
@@ -163,19 +165,22 @@ export default function WorkspacePage() {
         updateArchitecture(loadedArchitecture);
         updateStatus(loadedArchitecture.status);
         setMessages(
-          workspace.messages.map((message) => ({
+          workspace.messages.map(message => ({
             role: message.role,
             content: message.content,
           }))
         );
         setDraftVersion(
-          workspace.versions.find((version) => version.status === "DRAFT_REVISION") ||
-            null
+          workspace.versions.find(
+            version => version.status === "DRAFT_REVISION"
+          ) || null
         );
       })
-      .catch((error) => {
+      .catch(error => {
         if (isMounted) {
-          setError(error instanceof Error ? error.message : "Could not load workspace.");
+          setError(
+            error instanceof Error ? error.message : "Could not load workspace."
+          );
         }
       })
       .finally(() => {
@@ -202,7 +207,7 @@ export default function WorkspacePage() {
     try {
       const response = await sendProjectMessage(projectId, trimmed);
       setMessages(
-        response.messages.map((message) => ({
+        response.messages.map(message => ({
           role: message.role,
           content: message.content,
         }))
@@ -211,7 +216,9 @@ export default function WorkspacePage() {
         setDraftVersion(response.draftVersion);
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not send message.");
+      setError(
+        error instanceof Error ? error.message : "Could not send message."
+      );
       setFollowUp(trimmed);
     } finally {
       setIsAnalyzing(false);
@@ -223,13 +230,13 @@ export default function WorkspacePage() {
     updateArchitecture(loadedArchitecture);
     updateStatus(loadedArchitecture.status);
     setMessages(
-      workspace.messages.map((message) => ({
+      workspace.messages.map(message => ({
         role: message.role,
         content: message.content,
       }))
     );
     setDraftVersion(
-      workspace.versions.find((version) => version.status === "DRAFT_REVISION") ||
+      workspace.versions.find(version => version.status === "DRAFT_REVISION") ||
         null
     );
   };
@@ -243,7 +250,9 @@ export default function WorkspacePage() {
     try {
       applyWorkspace(await acceptDraftVersion(projectId, draftVersion.id));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not accept draft.");
+      setError(
+        error instanceof Error ? error.message : "Could not accept draft."
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -258,7 +267,9 @@ export default function WorkspacePage() {
     try {
       applyWorkspace(await discardDraftVersion(projectId, draftVersion.id));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not discard draft.");
+      setError(
+        error instanceof Error ? error.message : "Could not discard draft."
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -276,27 +287,35 @@ export default function WorkspacePage() {
 
           <div className="flex-1 overflow-auto p-4 space-y-4">
             {/* Context Info */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+            >
               <Card className="p-3 bg-[rgba(17,22,29,0.82)] border border-gold-soft/15 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
-              <div className="space-y-2">
-                <div>
-                  <span className="text-muted-foreground">Environment:</span>
-                  <span className="ml-2 text-foreground">
-                    {architecture.requirement_summary.environment}
-                  </span>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-muted-foreground">Environment:</span>
+                    <span className="ml-2 text-foreground">
+                      {architecture.requirement_summary.environment}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Budget:</span>
+                    <span className="ml-2 text-foreground">
+                      {(
+                        architecture.requirement_summary.budget_preference ||
+                        "not specified"
+                      ).replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Cloud:</span>
+                    <span className="ml-2 text-foreground">
+                      {architecture.cloud.provider}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Budget:</span>
-                  <span className="ml-2 text-foreground">
-                    {(architecture.requirement_summary.budget_preference ||
-                      "not specified").replace(/_/g, " ")}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Cloud:</span>
-                  <span className="ml-2 text-foreground">{architecture.cloud.provider}</span>
-                </div>
-              </div>
               </Card>
             </motion.div>
 
@@ -319,7 +338,11 @@ export default function WorkspacePage() {
                   Version {draftVersion.version} is ready for review.
                 </p>
                 <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={handleAcceptDraft} disabled={isAnalyzing}>
+                  <Button
+                    size="sm"
+                    onClick={handleAcceptDraft}
+                    disabled={isAnalyzing}
+                  >
                     Accept changes
                   </Button>
                   <Button
@@ -349,10 +372,12 @@ export default function WorkspacePage() {
                       : "bg-[rgba(17,22,29,0.82)] border border-gold-soft/10 hover:border-gold-soft/30"
                   }`}
                 >
-                <p className="text-xs font-semibold text-muted-foreground mb-1">
-                  {msg.role === "user" ? "You" : "Architect"}
-                </p>
-                <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">{msg.content}</p>
+                  <p className="text-xs font-semibold text-muted-foreground mb-1">
+                    {msg.role === "user" ? "You" : "Architect"}
+                  </p>
+                  <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
+                    {msg.content}
+                  </p>
                 </Card>
               </motion.div>
             ))}
@@ -365,7 +390,7 @@ export default function WorkspacePage() {
             <Textarea
               placeholder="Ask about the architecture or request a change…"
               value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
+              onChange={e => setFollowUp(e.target.value)}
               className="min-h-20 resize-none bg-[rgba(7,9,13,0.62)] border border-gold-soft/15 focus:border-gold-soft/45 focus:shadow-[0_0_15px_rgba(249,217,171,0.15)] transition-all duration-300 text-text-primary"
             />
             <Button
