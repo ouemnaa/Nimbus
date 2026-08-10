@@ -352,7 +352,7 @@ export default function WorkspacePage() {
                 <p className="text-xs font-semibold text-muted-foreground mb-1">
                   {msg.role === "user" ? "You" : "Architect"}
                 </p>
-                <p className="text-sm text-foreground">{msg.content}</p>
+                <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">{msg.content}</p>
                 </Card>
               </motion.div>
             ))}

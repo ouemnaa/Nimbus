@@ -202,11 +202,13 @@ async def test_explain_follow_up_does_not_create_new_version() -> None:
 
     assert response.intent.value == "EXPLAIN"
     assert response.architecture_changed is False
+    assert "Here is the reasoning" in response.answer
     versions.create.assert_not_awaited()
     change_requests.create.assert_not_awaited()
     assert messages.create.await_count == 2
     sent_messages = agent_client.follow_up.call_args.kwargs["messages"]
     assert len(sent_messages) == 8
+    assert agent_client.follow_up.call_args.kwargs["conversation_summary"] is not None
 
 
 @pytest.mark.asyncio
@@ -334,6 +336,7 @@ async def test_non_modify_follow_up_does_not_create_version(intent: str) -> None
 
     assert response.intent.value == intent
     assert response.architecture_changed is False
+    assert response.answer
     versions.create.assert_not_awaited()
     change_requests.create.assert_not_awaited()
 

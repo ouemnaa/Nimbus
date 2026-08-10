@@ -74,6 +74,7 @@ class ProjectService:
             raise NotFoundError("Current architecture version")
 
         recent_messages = await self.messages.list_recent_for_project(project_id, 8)
+        conversation_summary = self._summarize_recent_messages(recent_messages)
         user_message = await self.messages.create(
             build_chat_message_document(
                 project_id=project_id,
@@ -90,7 +91,7 @@ class ProjectService:
             session_id=str(project_id),
             current_architecture=current_version["architecture"],
             current_report_markdown=current_version.get("reportMarkdown"),
-            conversation_summary=None,
+            conversation_summary=conversation_summary,
             messages=[
                 {"role": item["role"], "content": item["content"]}
                 for item in recent_messages
@@ -170,6 +171,24 @@ class ProjectService:
                 for item in [*recent_messages, user_message, assistant_message]
             ],
         )
+
+    @staticmethod
+    def _summarize_recent_messages(messages: list[dict[str, Any]]) -> str | None:
+        if not messages:
+            return None
+
+        recent_turns: list[str] = []
+        for item in messages[-4:]:
+            role = item.get("role")
+            content = item.get("content")
+            if not isinstance(role, str) or not isinstance(content, str):
+                continue
+            recent_turns.append(f"{role}: {content}")
+
+        if not recent_turns:
+            return None
+
+        return " | ".join(recent_turns)
 
     async def accept_draft(
         self, project_id: ObjectId, version_id: ObjectId

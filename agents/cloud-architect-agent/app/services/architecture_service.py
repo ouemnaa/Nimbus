@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Dict, Any
+from typing import Any, Dict, Iterable
 from ..llm.base import LLMProvider
 from ..schemas.architecture import ArchitectureSpecification
 from ..schemas.requests import AnalyzeResponse, FollowUpRequest, FollowUpResponse, GenerationMetadata
@@ -65,7 +65,12 @@ class ArchitectureService:
             return FollowUpResponse(
                 intent=intent,
                 architecture_changed=False,
-                answer=self._answer_for_intent(intent, request.user_message),
+                answer=self._answer_for_intent(
+                    intent=intent,
+                    message=request.user_message,
+                    architecture=request.current_architecture,
+                    conversation_summary=request.conversation_summary,
+                ),
                 previous_version=previous_version,
                 metadata={
                     "provider": settings.LLM_PROVIDER,
@@ -144,15 +149,64 @@ class ArchitectureService:
         return "EXPLAIN"
 
     @staticmethod
-    def _answer_for_intent(intent: str, message: str) -> str:
+    def _answer_for_intent(
+        *,
+        intent: str,
+        message: str,
+        architecture: Dict[str, Any],
+        conversation_summary: str | None,
+    ) -> str:
         if intent == "CLARIFY":
-            return "What specific architecture change would you like me to make?"
+            return "\n".join(
+                [
+                    "I can refine the design, but I need one more detail to make the change safely.",
+                    "What part of the architecture should change?",
+                    "Do you want a cost, reliability, or scalability adjustment?",
+                ]
+            )
         if intent == "UNSUPPORTED":
-            return "That request is outside the current Nimbus architecture scope."
-        return (
-            "This architecture is designed around the current requirements. "
-            f"Your question was: {message}"
-        )
+            return "\n".join(
+                [
+                    "That request is outside the current Nimbus architecture scope.",
+                    "I can still help with AWS architecture decisions, tradeoffs, and revisions.",
+                ]
+            )
+
+        lines = ["Here is the reasoning behind the current design:"]
+
+        solution = architecture.get("solution")
+        if isinstance(solution, str) and solution.strip():
+            lines.append(f"- Solution summary: {solution.strip()}")
+
+        cloud = architecture.get("cloud")
+        if isinstance(cloud, dict):
+            region = cloud.get("region")
+            rationale = cloud.get("region_rationale")
+            if isinstance(region, str) and isinstance(rationale, str):
+                lines.append(f"- Region choice: {region} because {rationale}")
+
+        decisions = architecture.get("decisions")
+        if isinstance(decisions, list):
+            for decision in self._iter_decision_rationales(decisions):
+                lines.append(f"- {decision}")
+                if len(lines) >= 4:
+                    break
+
+        if conversation_summary:
+            lines.append(f"- Conversation context: {conversation_summary}")
+
+        lines.append(f"- Your question: {message}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _iter_decision_rationales(decisions: Iterable[Any]) -> Iterable[str]:
+        for item in decisions:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title")
+            rationale = item.get("rationale")
+            if isinstance(title, str) and isinstance(rationale, str):
+                yield f"Decision on {title}: {rationale}"
 
     @staticmethod
     def _next_minor_version(version: str) -> str:
