@@ -66,3 +66,30 @@ def test_generation_repairs_single_subnets_and_missing_container_values(tmp_path
     assert 'variable "container_image"' in file_map(response)["variables.tf"]
     assert 'default     = 80' in file_map(response)["variables.tf"]
     assert 'image     = var.container_image' in ecs
+
+
+def test_ecs_public_no_nat_generation_sets_assign_public_ip_true(tmp_path):
+    # Load the new public no-NAT fixture
+    public_no_nat_fixture = CanonicalArchitecture.model_validate(
+        json.loads((Path(__file__).parent / "fixtures" / "ecs_public_no_nat_architecture.json").read_text())
+    )
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(public_no_nat_fixture, GenerateOptions())
+    files = file_map(response)
+
+    assert response.generation_status == "SUCCESS"
+    assert response.generation_mode == "DETERMINISTIC_SUPPORTED"
+    assert response.deployment_strategy == "public_ecs_no_nat_low_cost_dev"
+
+    networking = files["networking.tf"]
+    ecs = files["ecs.tf"]
+
+    # NAT/EIP must not be generated
+    assert "aws_nat_gateway" not in networking
+    assert "aws_eip" not in networking
+
+    # ECS service must have assign_public_ip = true
+    assert "assign_public_ip = true" in ecs
+

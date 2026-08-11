@@ -73,6 +73,11 @@ class GenerateOptions(BaseModel):
     aws_region: str | None = None
     allow_repairs: bool = True
     validate_output: bool = Field(default=False, alias="validate")
+    # Hybrid pipeline feature flags (override global settings per-request)
+    enable_reasoning: bool | None = None   # None = use server default
+    enable_reviewer: bool | None = None    # None = use server default
+    enable_llm_draft_fallback: bool | None = None  # None = use server default (must be False)
+    enable_plan: bool = False              # terraform plan (gated by global env var too)
 
 
 class GenerateRequest(BaseModel):
