@@ -1,0 +1,46 @@
+# Generated Terraform for {{ architecture_id }}
+
+This Terraform was generated deterministically by Nimbus Terraform Generator Agent **{{ generator_version }}** for AWS region `{{ region }}`.
+
+## Architecture summary
+
+The target is a low-cost development architecture using a VPC, multi-AZ public and private subnets, an Application Load Balancer, ECS Fargate, PostgreSQL RDS, Secrets Manager, IAM, and CloudWatch Logs. The generated ECS tasks are private and the RDS instance is not publicly accessible.
+
+## Run validation
+
+```bash
+terraform fmt -check
+terraform init -backend=false
+terraform validate
+```
+
+To preview changes after supplying a real image in a local, uncommitted `terraform.tfvars` file:
+
+```bash
+terraform plan
+```
+
+The validator is read-only and performs no deployment or Terraform state mutation.
+
+## Required input
+
+Copy `terraform.tfvars.example` to a local `terraform.tfvars`, replace `container_image` with an image you control, and never commit the local file or Terraform state.
+
+## Warnings
+
+{% if warnings %}{% for warning in warnings %}- {{ warning }}
+{% endfor %}{% else %}- None.
+{% endif %}
+
+## Repairs applied
+
+{% if repairs %}{% for repair in repairs %}- `{{ repair.action }}` at `{{ repair.path }}`: {{ repair.result }}
+{% endfor %}{% else %}- None.
+{% endif %}
+
+## Safety reminders
+
+- Do not add AWS credentials to provider blocks or generated files.
+- Do not commit `terraform.tfvars`, state files, plans, or `.terraform/`.
+- HTTPS is not enabled until an ACM certificate workflow is implemented and configured.
+- Review cost, security, and deletion settings before any real deployment.

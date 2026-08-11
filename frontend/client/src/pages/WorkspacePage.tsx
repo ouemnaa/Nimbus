@@ -12,6 +12,8 @@ import { useArchitecture } from "@/hooks/useArchitecture";
 import {
   acceptDraftVersion,
   discardDraftVersion,
+  generateTerraform,
+  getLatestTerraformGeneration,
   getProjectWorkspace,
   sendProjectMessage,
 } from "@/services/architectureService";
@@ -20,6 +22,7 @@ import type {
   BackendArchitectureVersion,
   CanonicalArchitecture,
   ProjectWorkspaceResponse,
+  TerraformGeneration,
 } from "@/types/architecture";
 import { AlertCircle, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
@@ -129,6 +132,9 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [draftVersion, setDraftVersion] =
     useState<BackendArchitectureVersion | null>(null);
+  const [terraformGeneration, setTerraformGeneration] =
+    useState<TerraformGeneration | null>(null);
+  const [isGeneratingTerraform, setIsGeneratingTerraform] = useState(false);
   const [messages, setMessages] = useState<
     Array<{ role: string; content: string }>
   >([
@@ -156,8 +162,11 @@ export default function WorkspacePage() {
     setIsAnalyzing(true);
     setError(null);
 
-    getProjectWorkspace(projectId)
-      .then(workspace => {
+    Promise.all([
+      getProjectWorkspace(projectId),
+      getLatestTerraformGeneration(projectId),
+    ])
+      .then(([workspace, latestTerraform]) => {
         if (!isMounted) {
           return;
         }
@@ -175,6 +184,7 @@ export default function WorkspacePage() {
             version => version.status === "DRAFT_REVISION"
           ) || null
         );
+        setTerraformGeneration(latestTerraform);
       })
       .catch(error => {
         if (isMounted) {
@@ -275,6 +285,23 @@ export default function WorkspacePage() {
     }
   };
 
+  const handleGenerateTerraform = async () => {
+    if (!projectId) {
+      return;
+    }
+    setIsGeneratingTerraform(true);
+    setError(null);
+    try {
+      setTerraformGeneration(await generateTerraform(projectId));
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not generate Terraform."
+      );
+    } finally {
+      setIsGeneratingTerraform(false);
+    }
+  };
+
   return (
     <AppShell>
       <div className="flex h-screen bg-transparent">
@@ -292,7 +319,7 @@ export default function WorkspacePage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <Card className="p-3 bg-[rgba(17,22,29,0.82)] border border-gold-soft/15 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
+              <Card className="p-3 bg-card border border-border/40 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
                 <div className="space-y-2">
                   <div>
                     <span className="text-muted-foreground">Environment:</span>
@@ -369,7 +396,7 @@ export default function WorkspacePage() {
                   className={`p-3 transition-all duration-300 shadow-none ${
                     msg.role === "user"
                       ? "bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 border border-gold-soft/20 hover:border-gold-soft/40"
-                      : "bg-[rgba(17,22,29,0.82)] border border-gold-soft/10 hover:border-gold-soft/30"
+                      : "bg-card border border-border/40 hover:border-gold-soft/30"
                   }`}
                 >
                   <p className="text-xs font-semibold text-muted-foreground mb-1">
@@ -391,12 +418,12 @@ export default function WorkspacePage() {
               placeholder="Ask about the architecture or request a change…"
               value={followUp}
               onChange={e => setFollowUp(e.target.value)}
-              className="min-h-20 resize-none bg-[rgba(7,9,13,0.62)] border border-gold-soft/15 focus:border-gold-soft/45 focus:shadow-[0_0_15px_rgba(249,217,171,0.15)] transition-all duration-300 text-text-primary"
+              className="min-h-20 resize-none bg-bg-deep border border-border/40 focus:border-gold-soft/45 focus:ring-1 focus:ring-gold-soft/45 transition-all duration-300 text-text-primary"
             />
             <Button
               onClick={handleFollowUp}
               disabled={!followUp.trim() || isAnalyzing}
-              className="w-full gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-bg-main hover:shadow-[0_0_15px_rgba(228,187,150,0.3)] transition-all duration-300 border-none"
+              className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 shadow-sm hover:shadow"
             >
               <ArrowRight className="w-4 h-4" />
               Send
@@ -412,6 +439,9 @@ export default function WorkspacePage() {
             onStatusChange={updateStatus}
             onArchitectureUpdate={updateArchitecture}
             metadata={storedResponse?.metadata}
+            terraformGeneration={terraformGeneration}
+            isGeneratingTerraform={isGeneratingTerraform}
+            onGenerateTerraform={handleGenerateTerraform}
           />
         </div>
       </div>

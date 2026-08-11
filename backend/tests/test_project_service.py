@@ -179,14 +179,14 @@ async def test_explain_follow_up_does_not_create_new_version() -> None:
             assistant_message_id,
             project_id,
             role="assistant",
-            content="Because managed PostgreSQL reduces operations.",
+            content="Here is the reasoning: managed PostgreSQL reduces operations.",
             version_id=version_id,
         ),
     ]
     agent_client.follow_up.return_value = AgentFollowUpResult(
         intent="EXPLAIN",
         architecture_changed=False,
-        answer="Because managed PostgreSQL reduces operations.",
+        answer="Here is the reasoning: managed PostgreSQL reduces operations.",
         change_summary=[],
         previous_version="1.0.0",
         new_version=None,

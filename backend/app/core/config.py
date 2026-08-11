@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     solution_architect_agent_url: str = Field(
         default="http://localhost:8001", alias="SOLUTION_ARCHITECT_AGENT_URL"
     )
+    terraform_generator_agent_url: str = Field(
+        default="http://localhost:8002", alias="TERRAFORM_GENERATOR_AGENT_URL"
+    )
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

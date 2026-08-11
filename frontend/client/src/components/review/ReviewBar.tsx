@@ -6,6 +6,9 @@ interface ReviewBarProps {
   onApprove: () => void;
   onEdit: () => void;
   onRedesign: () => void;
+  onGenerateTerraform?: () => void;
+  isGeneratingTerraform?: boolean;
+  hasTerraformGeneration?: boolean;
 }
 
 export default function ReviewBar({
@@ -13,13 +16,29 @@ export default function ReviewBar({
   onApprove,
   onEdit,
   onRedesign,
+  onGenerateTerraform,
+  isGeneratingTerraform,
+  hasTerraformGeneration,
 }: ReviewBarProps) {
   if (status === "APPROVED") {
     return (
-      <div className="border-t border-border bg-emerald-500/5 px-6 py-4">
-        <p className="text-sm text-emerald-400">
-          ✓ Architecture approved and locked for generation.
+      <div className="border-t border-border bg-emerald-500/5 px-6 py-4 flex items-center justify-between gap-4">
+        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+          Architecture approved and locked for generation.
         </p>
+        {onGenerateTerraform ? (
+          <Button
+            size="sm"
+            onClick={onGenerateTerraform}
+            disabled={isGeneratingTerraform}
+          >
+            {isGeneratingTerraform
+              ? "Generating Terraform..."
+              : hasTerraformGeneration
+                ? "Regenerate Terraform"
+                : "Generate Terraform"}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -45,4 +64,3 @@ export default function ReviewBar({
     </div>
   );
 }
-

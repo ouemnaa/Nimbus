@@ -28,6 +28,7 @@ Edit `.env` and set the Atlas connection string:
 MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-host>/?retryWrites=true&w=majority
 MONGODB_DB_NAME=nimbus_dev
 SOLUTION_ARCHITECT_AGENT_URL=http://localhost:8001
+TERRAFORM_GENERATOR_AGENT_URL=http://localhost:8002
 ```
 
 Never commit `.env`. It is ignored by this service's `.gitignore`, while

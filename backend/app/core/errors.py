@@ -64,3 +64,22 @@ class InvalidOperationError(AppError):
             status_code=409,
             code="invalid_operation",
         )
+
+
+class TerraformAgentUnavailableError(AppError):
+    def __init__(self, agent_url: str) -> None:
+        super().__init__(
+            "Could not reach the Terraform Generator Agent. "
+            f"Make sure it is running on {agent_url}.",
+            status_code=503,
+            code="terraform_agent_unavailable",
+        )
+
+
+class TerraformGenerationError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Terraform Generator Agent could not generate Terraform files.",
+            status_code=502,
+            code="terraform_generation_failed",
+        )

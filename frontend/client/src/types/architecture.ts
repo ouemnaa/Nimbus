@@ -210,3 +210,26 @@ export interface ProjectMessageResponse {
   changeRequest?: BackendChangeRequest | null;
   changeSummary: string[];
 }
+
+export interface TerraformFile {
+  path: string;
+  content: string;
+}
+
+export interface TerraformGeneration {
+  id: string;
+  projectId: string;
+  architectureVersionId: string;
+  status: string;
+  files: TerraformFile[];
+  warnings: string[];
+  nextSteps: string[];
+  metadata: Record<string, unknown>;
+  supportedResources: string[];
+  unsupportedResources: string[];
+  derivedResources: Record<string, unknown>[];
+  repairs: Record<string, unknown>[];
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

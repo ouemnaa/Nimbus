@@ -106,6 +106,16 @@ class DatabaseManager:
                 IndexModel([("status", ASCENDING)], name="status"),
             ]
         )
+        await database.terraform_generations.create_indexes(
+            [
+                IndexModel([("projectId", ASCENDING)], name="project_id"),
+                IndexModel(
+                    [("architectureVersionId", ASCENDING)],
+                    name="architecture_version_id",
+                ),
+                IndexModel([("createdAt", DESCENDING)], name="created_at_desc"),
+            ]
+        )
 
 
 database_manager = DatabaseManager()

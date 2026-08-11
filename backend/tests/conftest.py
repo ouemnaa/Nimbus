@@ -5,20 +5,23 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_project_service
+from app.api.dependencies import get_project_service, get_terraform_service
 from app.main import create_app
 from app.schemas.architecture_version import ArchitectureVersionResponse
 from app.schemas.chat_message import ChatMessageResponse
 from app.schemas.common import ChatIntent, ChatRole, ProjectStatus
 from app.schemas.project import ProjectResponse
+from app.schemas.terraform_generation import TerraformGenerationResponse
 from app.schemas.workspace import ProjectWorkspaceResponse
 from app.services.project_service import ProjectService
+from app.services.terraform_service import TerraformService
 
 
 PROJECT_ID = "64b000000000000000000001"
 VERSION_ID = "64b000000000000000000002"
 USER_MESSAGE_ID = "64b000000000000000000003"
 ASSISTANT_MESSAGE_ID = "64b000000000000000000004"
+TERRAFORM_GENERATION_ID = "64b000000000000000000005"
 
 
 class FakeDatabaseManager:
@@ -112,8 +115,46 @@ def service(workspace: ProjectWorkspaceResponse) -> AsyncMock:
 
 
 @pytest.fixture
-def client(service: AsyncMock) -> Generator[TestClient, None, None]:
+def terraform_generation() -> TerraformGenerationResponse:
+    now = datetime.now(timezone.utc)
+    return TerraformGenerationResponse(
+        id=TERRAFORM_GENERATION_ID,
+        project_id=PROJECT_ID,
+        architecture_version_id=VERSION_ID,
+        status="SUCCESS",
+        files=[
+            {
+                "path": "versions.tf",
+                "content": 'terraform { required_version = ">= 1.6.0" }\n',
+            }
+        ],
+        warnings=[],
+        next_steps=["Run terraform init."],
+        metadata={"generatorVersion": "test"},
+        supported_resources=["aws_vpc"],
+        unsupported_resources=[],
+        derived_resources=[],
+        repairs=[],
+        error=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.fixture
+def terraform_service(terraform_generation: TerraformGenerationResponse) -> AsyncMock:
+    mock = AsyncMock(spec=TerraformService)
+    mock.generate_for_project.return_value = terraform_generation
+    mock.latest_for_project.return_value = terraform_generation
+    return mock
+
+
+@pytest.fixture
+def client(
+    service: AsyncMock, terraform_service: AsyncMock
+) -> Generator[TestClient, None, None]:
     application = create_app(FakeDatabaseManager())
     application.dependency_overrides[get_project_service] = lambda: service
+    application.dependency_overrides[get_terraform_service] = lambda: terraform_service
     with TestClient(application) as test_client:
         yield test_client

@@ -154,3 +154,15 @@ def test_list_projects(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()[0]["id"] == PROJECT_ID
+
+
+def test_generate_terraform_returns_files(
+    client: TestClient, terraform_service: AsyncMock
+) -> None:
+    response = client.post(f"/api/projects/{PROJECT_ID}/terraform/generate")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "SUCCESS"
+    assert body["files"][0]["path"] == "versions.tf"
+    terraform_service.generate_for_project.assert_awaited_once()

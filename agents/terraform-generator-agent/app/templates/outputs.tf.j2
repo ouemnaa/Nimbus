@@ -1,0 +1,41 @@
+output "vpc_id" {
+  value       = aws_vpc.{{ vpc_label }}.id
+  description = "VPC identifier."
+}
+
+output "public_subnet_ids" {
+  value       = [{% for subnet in public_subnets %}aws_subnet.{{ subnet.label }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+  description = "Public subnet identifiers."
+}
+
+output "private_subnet_ids" {
+  value       = [{% for subnet in private_subnets %}aws_subnet.{{ subnet.label }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+  description = "Private subnet identifiers."
+}
+
+{% if alb_label %}
+output "alb_dns_name" {
+  value       = aws_lb.{{ alb_label }}.dns_name
+  description = "Application Load Balancer DNS name."
+}
+{% endif %}
+
+output "ecs_cluster_name" {
+  value       = aws_ecs_cluster.{{ ecs_cluster_label }}.name
+  description = "ECS cluster name."
+}
+
+output "ecs_service_name" {
+  value       = aws_ecs_service.{{ ecs_service_label }}.name
+  description = "ECS service name."
+}
+
+output "rds_endpoint" {
+  value       = aws_db_instance.{{ db_label }}.address
+  description = "Private RDS endpoint address."
+}
+
+output "secret_arn" {
+  value       = aws_secretsmanager_secret.{{ secret_label }}.arn
+  description = "Database secret ARN."
+}

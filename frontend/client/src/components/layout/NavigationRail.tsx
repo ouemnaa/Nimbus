@@ -28,7 +28,7 @@ export default function NavigationRail() {
   ];
 
   return (
-    <div className="w-[70px] bg-[#0A0E17]/95 border-r border-gold-soft/15 flex flex-col items-center py-4 gap-4 h-screen backdrop-blur-2xl z-20">
+    <div className="w-[70px] bg-sidebar/95 border-r border-sidebar-border flex flex-col items-center py-4 gap-4 h-screen backdrop-blur-2xl z-20">
       {/* Logo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -36,7 +36,7 @@ export default function NavigationRail() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-12 w-12 rounded-2xl border border-gold-soft/30 bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 p-1 transition-all duration-300 hover:border-gold-soft/60 shadow-[0_0_20px_rgba(249,217,171,0.15)]"
+              className="h-12 w-12 rounded-2xl border border-sidebar-border bg-sidebar hover:border-gold-soft/60 shadow-sm transition-all duration-300"
             >
               <img
                 src={logo}
@@ -86,7 +86,7 @@ export default function NavigationRail() {
                     size="icon"
                     className={`rounded-xl w-10 h-10 transition-all ${
                       isActive(item.path)
-                        ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-[0_0_15px_rgba(249,217,171,0.15)]"
+                        ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-sm"
                         : "hover:bg-gold-soft/10 text-text-secondary hover:text-gold-soft"
                     }`}
                   >
@@ -136,7 +136,7 @@ export default function NavigationRail() {
                 size="icon"
                 className={`rounded-xl w-10 h-10 transition-all ${
                   isActive("/settings")
-                    ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-[0_0_15px_rgba(249,217,171,0.15)]"
+                    ? "bg-gold-soft/15 text-gold-soft border border-gold-soft/35 shadow-sm"
                     : "hover:bg-gold-soft/10 text-text-secondary hover:text-gold-soft"
                 }`}
               >

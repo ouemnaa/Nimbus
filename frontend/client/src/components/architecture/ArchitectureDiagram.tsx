@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ZoomIn, ZoomOut, Maximize2, RotateCcw } from "lucide-react";
 import mermaid from "mermaid";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface ArchitectureDiagramProps {
   diagram: string;
@@ -14,7 +15,11 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
   const reactId = useId();
   const diagramId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [scale, setScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [error, setError] = useState<string | null>(null);
+  const { theme } = useTheme();
 
   useEffect(() => {
     let cancelled = false;
@@ -31,8 +36,16 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
 
         mermaid.initialize({
           startOnLoad: false,
-          theme: "dark",
+          theme: theme === "dark" ? "dark" : "default",
           securityLevel: "loose",
+          themeVariables: theme === "dark" ? {} : {
+            background: "#FCFAF2",
+            primaryColor: "#EFEBE0",
+            primaryTextColor: "#231C16",
+            lineColor: "#8E5E38",
+            signalColor: "#8E5E38",
+            signalTextColor: "#231C16",
+          }
         });
         await mermaid.parse(source);
         const { svg, bindFunctions } = await mermaid.render(diagramId, source);
@@ -57,17 +70,37 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
         containerRef.current.innerHTML = "";
       }
     };
-  }, [diagram, diagramId]);
+  }, [diagram, diagramId, theme]);
 
-  const handleZoom = (direction: "in" | "out") => {
-    setScale((prev) => {
-      const newScale = direction === "in" ? prev + 0.1 : prev - 0.1;
-      return Math.max(0.5, Math.min(newScale, 2));
-    });
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPanOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomIntensity = 0.05;
+    const newScale = e.deltaY < 0 ? scale + zoomIntensity : scale - zoomIntensity;
+    setScale(Math.max(0.2, Math.min(newScale, 3)));
+  };
+
+  const handleReset = () => {
+    setScale(1);
+    setPanOffset({ x: 0, y: 0 });
   };
 
   return (
-    <Card className="p-4 bg-[rgba(17,22,29,0.82)] border-gold-soft/15">
+    <Card className="p-4 bg-card border-border/40">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <div className="flex items-center gap-2">
@@ -75,8 +108,8 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
             variant="ghost"
             size="icon"
             className="w-8 h-8"
-            onClick={() => handleZoom("out")}
-            disabled={scale <= 0.5}
+            onClick={() => setScale(prev => Math.max(0.2, prev - 0.1))}
+            disabled={scale <= 0.2}
           >
             <ZoomOut className="w-4 h-4" />
           </Button>
@@ -87,8 +120,8 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
             variant="ghost"
             size="icon"
             className="w-8 h-8"
-            onClick={() => handleZoom("in")}
-            disabled={scale >= 2}
+            onClick={() => setScale(prev => Math.min(3, prev + 0.1))}
+            disabled={scale >= 3}
           >
             <ZoomIn className="w-4 h-4" />
           </Button>
@@ -96,7 +129,7 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
             variant="ghost"
             size="icon"
             className="w-8 h-8"
-            onClick={() => setScale(1)}
+            onClick={handleReset}
           >
             <RotateCcw className="w-4 h-4" />
           </Button>
@@ -112,10 +145,21 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
         </div>
       ) : (
         <div
-          className="overflow-auto bg-bg-surface rounded border border-gold-soft/12 p-4 flex items-center justify-center min-h-96"
-          style={{ transform: `scale(${scale})`, transformOrigin: "top center" }}
+          className="relative overflow-hidden bg-bg-surface rounded border border-gold-soft/12 min-h-96 cursor-grab active:cursor-grabbing select-none flex items-center justify-center"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onWheel={handleWheel}
         >
-          <div ref={containerRef} className="w-full" />
+          <div
+            ref={containerRef}
+            className="w-full flex items-center justify-center p-4 transition-transform duration-75 ease-out"
+            style={{
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})`,
+              transformOrigin: "center center",
+            }}
+          />
         </div>
       )}
     </Card>

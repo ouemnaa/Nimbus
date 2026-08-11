@@ -3,6 +3,7 @@ import type {
   AnalyzeArchitectureResponse,
   ProjectMessageResponse,
   ProjectWorkspaceResponse,
+  TerraformGeneration,
 } from "@/types/architecture";
 
 export const NIMBUS_BACKEND_URL = (
@@ -109,6 +110,41 @@ export async function discardDraftVersion(
     )}/discard`,
     { method: "POST" }
   );
+}
+
+export async function generateTerraform(
+  projectId: string
+): Promise<TerraformGeneration> {
+  return requestJson<TerraformGeneration>(
+    `/api/projects/${encodeURIComponent(projectId)}/terraform/generate`,
+    { method: "POST" }
+  );
+}
+
+export async function getLatestTerraformGeneration(
+  projectId: string
+): Promise<TerraformGeneration | null> {
+  let response: Response;
+
+  try {
+    response = await fetch(
+      `${NIMBUS_BACKEND_URL}/api/projects/${encodeURIComponent(
+        projectId
+      )}/terraform/latest`
+    );
+  } catch {
+    throw new Error(
+      `Could not reach the Nimbus backend. Make sure it is running on ${NIMBUS_BACKEND_URL}.`
+    );
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error("Could not load generated Terraform files.");
+  }
+  return (await response.json()) as TerraformGeneration;
 }
 
 export async function analyzeArchitecture(

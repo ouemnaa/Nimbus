@@ -14,6 +14,9 @@ from app.repositories.architecture_version_repository import (
 from app.repositories.change_request_repository import ChangeRequestRepository
 from app.repositories.chat_message_repository import ChatMessageRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.terraform_generation_repository import (
+    TerraformGenerationRepository,
+)
 from app.schemas.architecture_version import ArchitectureVersionResponse
 from app.schemas.change_request import ChangeRequestResponse
 from app.schemas.chat_message import (
@@ -36,11 +39,13 @@ class ProjectService:
         message_repository: ChatMessageRepository,
         change_request_repository: ChangeRequestRepository,
         agent_client: SolutionArchitectAgentClient | None = None,
+        terraform_generation_repository: TerraformGenerationRepository | None = None,
     ) -> None:
         self.projects = project_repository
         self.versions = version_repository
         self.messages = message_repository
         self.change_requests = change_request_repository
+        self.terraform_generations = terraform_generation_repository
         self.agent_client = agent_client
 
     async def list_projects(self) -> list[ProjectResponse]:
@@ -417,6 +422,11 @@ class ProjectService:
             self.versions.delete_for_project(project_id),
             self.messages.delete_for_project(project_id),
             self.change_requests.delete_for_project(project_id),
+            *(
+                [self.terraform_generations.delete_for_project(project_id)]
+                if self.terraform_generations is not None
+                else []
+            ),
         )
 
     async def _best_effort_delete_project(self, project_id: ObjectId) -> None:

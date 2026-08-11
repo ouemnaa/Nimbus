@@ -14,7 +14,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
   return (
     <div className="space-y-6">
       {/* Summary */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-3">Architecture Summary</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">
           {solutionSummary || "No solution summary was returned."}
@@ -22,7 +22,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </Card>
 
       {/* Architecture Qualities */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-4">Architecture Qualities</h3>
         <ul className="space-y-2">
           {[
@@ -40,7 +40,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </Card>
 
       {/* Architecture Assessment */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-4">Architecture Assessment</h3>
         <div className="grid grid-cols-2 gap-4">
           {[
@@ -58,7 +58,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="p-6 bg-background border-border">
+        <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
           <h3 className="mb-3 text-sm font-semibold text-foreground">
             Security Considerations
           </h3>
@@ -77,7 +77,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
           )}
         </Card>
 
-        <Card className="p-6 bg-background border-border">
+        <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
           <h3 className="mb-3 text-sm font-semibold text-foreground">
             Cost Considerations
           </h3>
@@ -98,7 +98,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </div>
 
       {/* Assumptions */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-3">Assumptions</h3>
         <ul className="space-y-2">
           {architecture.assumptions.map((assumption, idx) => (
@@ -110,7 +110,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </Card>
 
       {/* Open Questions */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-3">Open Questions</h3>
         <ul className="space-y-2">
           {architecture.open_questions.map((question, idx) => (
@@ -122,7 +122,7 @@ export default function ArchitectureOverview({ architecture }: ArchitectureOverv
       </Card>
 
       {/* Risks */}
-      <Card className="p-6 bg-background border-border">
+      <Card className="p-6 bg-card border-border/40 shadow-sm hover:shadow transition-all duration-300">
         <h3 className="text-sm font-semibold text-foreground mb-3">Risks & Mitigations</h3>
         <div className="space-y-3">
           {architecture.risks.map((risk, idx) => (

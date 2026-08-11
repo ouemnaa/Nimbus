@@ -28,37 +28,40 @@ export default function ArchitectureComponents({ components }: ArchitectureCompo
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {Object.entries(groupedByCategory).map(([category, items]) => (
-        <div key={category}>
-          <div className="flex items-center gap-2 mb-3">
-            {categoryIcons[category] || <Cloud className="h-4 w-4" />}
-            <h3 className="text-sm font-semibold text-foreground">
+        <div key={category} className="space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-border/20">
+            <div className="p-1 rounded-md bg-primary/10 text-primary">
+              {categoryIcons[category] || <Cloud className="h-4 w-4" />}
+            </div>
+            <h3 className="text-sm font-semibold text-text-primary tracking-wide uppercase">
               {category.replace(/_/g, " ")}
             </h3>
+            <span className="text-xs text-text-muted">({items.length})</span>
           </div>
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {items.map((component) => (
-              <Card key={component.id} className="p-4 bg-background border-border">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h4 className="font-medium text-sm text-foreground">{component.name}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {component.provider_type || component.type || "Cloud resource"}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-2">{component.purpose}</p>
-                  </div>
-                  <div className="text-right">
+              <Card key={component.id} className="p-5 bg-card border border-border/40 shadow-sm hover:shadow-md hover:border-gold-soft/50 transition-all duration-300 rounded-xl flex flex-col justify-between min-h-[140px]">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-sm text-text-primary leading-tight truncate">{component.name}</h4>
+                      <p className="text-[10px] font-medium text-text-muted mt-1 uppercase tracking-wider font-mono truncate">
+                        {component.provider_type || component.type || "Cloud resource"}
+                      </p>
+                    </div>
                     <span
-                      className={`text-xs px-2 py-1 rounded ${
-                        component.scope.toLowerCase().includes("public")
-                          ? "bg-gold-soft/10 text-gold-cloud"
-                          : "bg-gray-500/10 text-gray-400"
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                        component.scope.toLowerCase().includes("public") || component.scope.toLowerCase().includes("global")
+                          ? "bg-amber-500/10 text-amber-700 dark:text-gold-cloud border-amber-500/20"
+                          : "bg-primary/10 text-primary border-primary/20"
                       }`}
                     >
                       {component.scope.replace(/_/g, " ").toLowerCase()}
                     </span>
                   </div>
+                  <p className="text-xs text-text-secondary leading-relaxed line-clamp-3">{component.purpose}</p>
                 </div>
               </Card>
             ))}

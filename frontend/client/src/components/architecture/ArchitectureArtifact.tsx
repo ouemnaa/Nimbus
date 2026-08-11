@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Copy, Download, MoreHorizontal } from "lucide-react";
-import { CanonicalArchitecture, ArchitectureStatus as ArchitectureStatusType } from "@/types/architecture";
+import { CanonicalArchitecture, ArchitectureStatus as ArchitectureStatusType, TerraformGeneration } from "@/types/architecture";
 import { motion } from "framer-motion";
 import ArchitectureStatusBadge from "./ArchitectureStatus";
 import ArchitectureOverview from "./ArchitectureOverview";
@@ -11,6 +11,7 @@ import ArchitectureComponents from "./ArchitectureComponents";
 import ArchitectureDecisions from "./ArchitectureDecisions";
 import ArchitectureReport from "./ArchitectureReport";
 import ArchitectureJson from "./ArchitectureJson";
+import TerraformFilesTabs from "./TerraformFilesTabs";
 import ReviewBar from "../review/ReviewBar";
 import ApproveDialog from "../review/ApproveDialog";
 import EditArchitectureDrawer from "../review/EditArchitectureDrawer";
@@ -28,6 +29,9 @@ interface ArchitectureArtifactProps {
     model: string;
     generation_duration_ms: number;
   };
+  terraformGeneration?: TerraformGeneration | null;
+  isGeneratingTerraform?: boolean;
+  onGenerateTerraform?: () => void;
 }
 
 export default function ArchitectureArtifact({
@@ -36,6 +40,9 @@ export default function ArchitectureArtifact({
   onStatusChange,
   onArchitectureUpdate,
   metadata,
+  terraformGeneration,
+  isGeneratingTerraform,
+  onGenerateTerraform,
 }: ArchitectureArtifactProps) {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
@@ -72,7 +79,7 @@ export default function ArchitectureArtifact({
   return (
     <div className="flex flex-col h-full bg-transparent">
       {/* Header */}
-      <div className="border-b border-gold-soft/15 px-6 py-4 bg-[#0D131D]/90 backdrop-blur-md">
+      <div className="border-b border-border/40 px-6 py-4 bg-bg-surface/90 backdrop-blur-md">
         <motion.div
           className="flex items-start justify-between gap-4 mb-4"
           initial={{ opacity: 0, y: -10 }}
@@ -80,7 +87,7 @@ export default function ArchitectureArtifact({
           transition={{ duration: 0.5 }}
         >
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-[#F7EEDC] via-gold-cloud to-storm-slate bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-text-primary via-primary to-text-secondary bg-clip-text text-transparent">
               {architecture.title}
             </h1>
             <div className="flex items-center gap-3 mt-2">
@@ -129,9 +136,8 @@ export default function ArchitectureArtifact({
         </motion.div>
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue="overview" className="flex-1 overflow-hidden flex flex-col">
-        <TabsList className="workspace-tabs-list h-auto w-full justify-start rounded-none border-b border-gold-soft/10 bg-[rgba(7,9,13,0.72)] p-0 backdrop-blur-md">
+        <TabsList className="workspace-tabs-list h-auto w-full justify-start rounded-none border-b border-border/40 bg-bg-surface-soft p-0 backdrop-blur-md">
           <TabsTrigger value="overview" className="workspace-tab">
             Overview
           </TabsTrigger>
@@ -150,6 +156,11 @@ export default function ArchitectureArtifact({
           <TabsTrigger value="specification" className="workspace-tab">
             Specification
           </TabsTrigger>
+          {terraformGeneration ? (
+            <TabsTrigger value="terraform" className="workspace-tab">
+              Terraform
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <div className="workspace-scrollbar flex-1 overflow-auto">
@@ -201,6 +212,12 @@ export default function ArchitectureArtifact({
             <TabsContent value="specification" className="mt-0">
               <ArchitectureJson architecture={architecture} />
             </TabsContent>
+
+            {terraformGeneration ? (
+              <TabsContent value="terraform" className="mt-0">
+                <TerraformFilesTabs generation={terraformGeneration} />
+              </TabsContent>
+            ) : null}
           </div>
         </div>
       </Tabs>
@@ -211,6 +228,9 @@ export default function ArchitectureArtifact({
         onApprove={() => setApproveDialogOpen(true)}
         onEdit={() => setEditDrawerOpen(true)}
         onRedesign={() => setRedesignDialogOpen(true)}
+        onGenerateTerraform={onGenerateTerraform}
+        isGeneratingTerraform={isGeneratingTerraform}
+        hasTerraformGeneration={Boolean(terraformGeneration)}
       />
 
       {/* Dialogs */}

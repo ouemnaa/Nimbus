@@ -1,0 +1,88 @@
+variable "aws_region" {
+  description = "AWS region for the deployment."
+  type        = string
+  default     = "{{ region }}"
+}
+
+variable "project_name" {
+  description = "Short project name used in resource names and tags."
+  type        = string
+  default     = "{{ project_name }}"
+}
+
+variable "environment" {
+  description = "Deployment environment."
+  type        = string
+  default     = "{{ environment }}"
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the VPC."
+  type        = string
+  default     = "{{ vpc_cidr }}"
+}
+
+variable "container_image" {
+  description = "Container image URI for the ECS service. Supply a real image before planning."
+  type        = string
+}
+
+variable "container_port" {
+  description = "Port exposed by the application container."
+  type        = number
+  default     = {{ container_port }}
+}
+
+variable "ecs_cpu" {
+  description = "Fargate task CPU units."
+  type        = number
+  default     = {{ ecs_cpu }}
+}
+
+variable "ecs_memory" {
+  description = "Fargate task memory in MiB."
+  type        = number
+  default     = {{ ecs_memory }}
+}
+
+variable "ecs_desired_count" {
+  description = "Number of ECS tasks."
+  type        = number
+  default     = {{ ecs_desired_count }}
+}
+
+variable "db_username" {
+  description = "PostgreSQL username. The password is generated and stored in Secrets Manager."
+  type        = string
+  default     = "{{ db_username }}"
+}
+
+variable "db_name" {
+  description = "PostgreSQL database name."
+  type        = string
+  default     = "{{ db_name }}"
+}
+
+variable "db_instance_class" {
+  description = "RDS instance class for the development database."
+  type        = string
+  default     = "{{ db_instance_class }}"
+}
+
+variable "db_allocated_storage" {
+  description = "RDS allocated storage in GiB."
+  type        = number
+  default     = {{ db_allocated_storage }}
+}
+
+variable "db_multi_az" {
+  description = "Whether RDS should be Multi-AZ."
+  type        = bool
+  default     = {{ "true" if db_multi_az else "false" }}
+}
+
+variable "acm_certificate_arn" {
+  description = "Optional ACM certificate ARN. HTTPS support is not generated until this is set."
+  type        = string
+  default     = null
+}
