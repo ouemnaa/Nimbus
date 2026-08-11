@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0.0",
+  "architecture_id": "dev-public-ecs-no-nat",
+  "architecture_version": "1.0.0",
+  "status": "approved",
+  "title": "Low-cost public ECS (no NAT Gateway)",
+  "cloud": {
+    "provider": "aws",
+    "region": "us-east-1"
+  },
+  "resources": [
+    {
+      "id": "dev-vpc",
+      "name": "dev-vpc",
+      "provider_type": "aws_vpc",
+      "category": "networking",
+      "configuration": {"cidr_block": "10.0.0.0/16"}
+    },
+    {
+      "id": "dev-public-subnet-1",
+      "name": "dev-public-subnet-1",
+      "provider_type": "aws_subnet",
+      "category": "networking",
+      "configuration": {
+        "cidr_block": "10.0.1.0/24",
+        "availability_zone": "us-east-1a",
+        "subnet_type": "public",
+        "public": true
+      }
+    },
+    {
+      "id": "dev-public-subnet-2",
+      "name": "dev-public-subnet-2",
+      "provider_type": "aws_subnet",
+      "category": "networking",
+      "configuration": {
+        "cidr_block": "10.0.2.0/24",
+        "availability_zone": "us-east-1b",
+        "subnet_type": "public",
+        "public": true
+      }
+    },
+    {
+      "id": "dev-igw",
+      "name": "dev-igw",
+      "provider_type": "aws_internet_gateway",
+      "category": "networking",
+      "configuration": {}
+    },
+    {
+      "id": "dev-alb-sg",
+      "name": "dev-alb-sg",
+      "provider_type": "aws_security_group",
+      "category": "security",
+      "configuration": {}
+    },
+    {
+      "id": "dev-ecs-sg",
+      "name": "dev-ecs-sg",
+      "provider_type": "aws_security_group",
+      "category": "security",
+      "configuration": {}
+    },
+    {
+      "id": "dev-rds-sg",
+      "name": "dev-rds-sg",
+      "provider_type": "aws_security_group",
+      "category": "security",
+      "configuration": {}
+    },
+    {
+      "id": "dev-alb",
+      "name": "dev-alb",
+      "provider_type": "aws_lb",
+      "category": "load_balancing",
+      "configuration": {"internal": false}
+    },
+    {
+      "id": "dev-ecs-cluster",
+      "name": "dev-ecs-cluster",
+      "provider_type": "aws_ecs_cluster",
+      "category": "compute",
+      "configuration": {}
+    },
+    {
+      "id": "dev-ecs-service",
+      "name": "dev-ecs-service",
+      "provider_type": "aws_ecs_service",
+      "category": "compute",
+      "configuration": {
+        "desired_count": 1,
+        "cpu": 256,
+        "memory": 512,
+        "container_name": "app"
+      }
+    },
+    {
+      "id": "dev-rds-postgres",
+      "name": "dev-rds-postgres",
+      "provider_type": "aws_db_instance",
+      "category": "database",
+      "configuration": {
+        "engine": "postgres",
+        "engine_version": "15.5",
+        "instance_class": "db.t3.micro",
+        "allocated_storage": 20,
+        "db_name": "nimbus",
+        "multi_az": false
+      }
+    },
+    {
+      "id": "dev-db-secret",
+      "name": "dev-db-secret",
+      "provider_type": "aws_secretsmanager_secret",
+      "category": "security",
+      "configuration": {}
+    },
+    {
+      "id": "dev-ecs-execution-role",
+      "name": "dev-ecs-execution-role",
+      "provider_type": "aws_iam_role",
+      "category": "iam",
+      "configuration": {"purpose": "ecs_execution"}
+    },
+    {
+      "id": "dev-ecs-logs",
+      "name": "dev-ecs-logs",
+      "provider_type": "aws_cloudwatch_log_group",
+      "category": "observability",
+      "configuration": {"retention_in_days": 7}
+    }
+  ],
+  "relationships": [
+    {"source": "dev-alb", "target": "dev-ecs-service", "type": "routes_to"},
+    {"source": "dev-ecs-service", "target": "dev-rds-postgres", "type": "connects_to"}
+  ]
+}

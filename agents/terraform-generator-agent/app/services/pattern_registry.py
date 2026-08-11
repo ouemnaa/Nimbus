@@ -377,7 +377,12 @@ def _ecs_context(architecture: NormalizedArchitecture, options: GenerateOptions,
         "db_label": rds.label if rds else "postgres",
         "public_subnets": public_subnets,
         "private_subnets": private_subnets,
+        # ecs_subnets and assign_public_ip are set by TerraformPlanBuilder
+        # based on deployment_strategy from TerraformReasoningAgent.
+        # Default to private subnets + no public IP (safe); plan builder overrides
+        # for public_ecs_no_nat_low_cost_dev strategy.
         "ecs_subnets": private_subnets or public_subnets,
+        "assign_public_ip": False,
         "vpc_label": vpc.label if vpc else "vpc",
         "igw_label": igw.label if igw else "internet_gateway",
         "nat_label": nat.label if nat else None,

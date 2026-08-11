@@ -4,6 +4,10 @@ import logging
 from typing import Any
 
 from app.core.config import Settings
+from app.fallback.llm_draft_generator import LLMDraftTerraformGenerator
+from app.llm.factory import create_provider
+from app.planning.plan_builder import TerraformPlanBuilder
+from app.reasoning.terraform_reasoning_agent import TerraformReasoningAgent
 from app.renderers.common_files_renderer import CommonFilesRenderer
 from app.renderers.database_renderer import DatabaseRenderer
 from app.renderers.ecs_renderer import EcsRenderer
@@ -14,11 +18,14 @@ from app.renderers.observability_renderer import ObservabilityRenderer
 from app.renderers.outputs_renderer import OutputsRenderer
 from app.renderers.security_groups_renderer import SecurityGroupsRenderer
 from app.renderers.secrets_renderer import SecretsRenderer
-from app.schemas.architecture import CanonicalArchitecture, GenerateOptions
+from app.review.terraform_reviewer_agent import TerraformReviewerAgent
+from app.safety.policy_checker import TerraformSafetyPolicyChecker
+from app.schemas.architecture import CanonicalArchitecture, FileArtifact, GenerateOptions
 from app.schemas.plan import TerraformGenerationPlan
 from app.schemas.terraform import GenerationMetadata, GenerationResponse
+from app.schemas.validation import ValidationResponse
 
-from .architecture_normalizer import normalize_architecture
+from .architecture_normalizer import NormalizedArchitecture, normalize_architecture
 from .architecture_validator import validate_architecture
 from .artifact_writer import ArtifactWriter
 from .pattern_registry import PatternRegistry
@@ -43,6 +50,15 @@ class TerraformGeneratorService:
             OutputsRenderer(),
         ]
         self.writer = ArtifactWriter(settings.generated_artifacts_dir)
+        self.reasoning_agent = TerraformReasoningAgent()
+        self.plan_builder = TerraformPlanBuilder()
+        self.safety_checker = TerraformSafetyPolicyChecker()
+        self.reviewer_agent = TerraformReviewerAgent()
+        self.draft_generator = LLMDraftTerraformGenerator()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def generate(
         self,
@@ -50,79 +66,208 @@ class TerraformGeneratorService:
         options: GenerateOptions | None = None,
     ) -> GenerationResponse:
         options = options or GenerateOptions()
-        normalized = normalize_architecture(architecture, self.settings.default_aws_region)
-        validation = validate_architecture(normalized)
-        metadata_base = {
+
+        # Resolve per-request feature flags (None means use server default)
+        reasoning_enabled = (
+            options.enable_reasoning
+            if options.enable_reasoning is not None
+            else self.settings.terraform_reasoning_enabled
+        )
+        reviewer_enabled = (
+            options.enable_reviewer
+            if options.enable_reviewer is not None
+            else self.settings.terraform_reviewer_enabled
+        )
+        draft_fallback_enabled = (
+            options.enable_llm_draft_fallback
+            if options.enable_llm_draft_fallback is not None
+            else self.settings.terraform_llm_draft_fallback_enabled
+        )
+
+        # Resolve LLM provider (never raise on missing key — just go deterministic)
+        llm = None
+        try:
+            llm = create_provider(self.settings)
+        except Exception as exc:
+            logger.warning("LLM provider unavailable (%s) — running in deterministic mode.", type(exc).__name__)
+
+        llm_provider_name = llm.name if llm else "none"
+
+        metadata_base: dict[str, Any] = {
             "generator_version": self.settings.generator_version,
             "generated_file_count": 0,
-            "llm_provider": self.settings.llm_provider,
-            "architecture_id": normalized.architecture_id,
-            "architecture_version": normalized.architecture_version,
+            "llm_provider": llm_provider_name,
+            "architecture_id": "unknown",
+            "architecture_version": "unknown",
+            "reasoning_enabled": reasoning_enabled,
+            "reviewer_enabled": reviewer_enabled,
+            "draft_fallback_enabled": draft_fallback_enabled,
         }
 
-        if validation.unsupported_resources:
-            return GenerationResponse(
-                generation_status="UNSUPPORTED",
-                supported_resources=sorted(set(validation.supported_resources)),
-                unsupported_resources=validation.unsupported_resources,
-                warnings=validation.warnings,
-                next_steps=[
-                    "Add a pattern definition and renderer support for the unsupported provider/resource types."
-                ],
-                metadata=GenerationMetadata(**metadata_base),
+        # 1. Normalize + validate architecture
+        normalized = normalize_architecture(architecture, self.settings.default_aws_region)
+        metadata_base["architecture_id"] = normalized.architecture_id
+        metadata_base["architecture_version"] = normalized.architecture_version
+
+        arch_validation = validate_architecture(normalized)
+
+        if arch_validation.unsupported_resources:
+            return self._unsupported(
+                metadata_base,
+                arch_validation.warnings,
+                arch_validation.supported_resources,
+                arch_validation.unsupported_resources,
                 error=(
                     "No supported Terraform pattern can render these provider types: "
-                    + ", ".join(validation.unsupported_resources)
+                    + ", ".join(arch_validation.unsupported_resources)
                 ),
-            )
-        plan = self.registry.detect(normalized, options, self.settings)
-        if plan is None:
-            return GenerationResponse(
-                generation_status="UNSUPPORTED",
-                supported_resources=sorted(set(validation.supported_resources)),
-                warnings=validation.warnings,
-                next_steps=[
-                    "Create a PatternDefinition with required provider types, repair rules, validation rules, and renderer templates."
-                ],
-                metadata=GenerationMetadata(**metadata_base),
-                error=self.registry.missing_pattern_message(normalized),
-            )
-        if validation.errors:
-            return GenerationResponse(
-                generation_status="NEEDS_INPUT",
-                supported_resources=sorted(set(validation.supported_resources)),
-                warnings=validation.warnings,
-                next_steps=["Provide the missing deterministic architecture inputs and retry generation."],
-                metadata=GenerationMetadata(**metadata_base),
-                error=" ".join(validation.errors),
+                next_steps=["Add a pattern definition and renderer support for the unsupported provider/resource types."],
             )
 
+        # 2. Detect pattern
+        supported_pattern_ids = [p.definition.pattern_id for p in self.registry.patterns]
+        pattern_obj = self._find_pattern(normalized)
+        detected_pattern_id = pattern_obj.definition.pattern_id if pattern_obj else None
+
+        # 3. Run reasoning (always runs for deterministic patterns; uses LLM if enabled + available)
+        reasoning_llm = llm if reasoning_enabled else None
+        reasoning = self.reasoning_agent.reason(
+            architecture=normalized,
+            detected_pattern_id=detected_pattern_id,
+            supported_patterns=supported_pattern_ids,
+            current_plan=None,
+            options={},
+            llm=reasoning_llm,
+        )
+
+        # 4. Handle cases where no deterministic pattern matched
+        if pattern_obj is None:
+            return self._handle_no_pattern(
+                normalized, reasoning, arch_validation, metadata_base,
+                options, draft_fallback_enabled, llm,
+            )
+
+        # 5. Check for NEEDS_INPUT from reasoning (dangerous configurations)
+        if reasoning.reasoning_status == "NEEDS_INPUT":
+            return self._needs_input_response(
+                metadata_base,
+                reasoning,
+                arch_validation,
+                detected_pattern_id,
+            )
+
+        # 6. Build enriched plan (reasoning overrides ecs_subnets, assign_public_ip, etc.)
+        if arch_validation.errors:
+            return GenerationResponse(
+                generation_status="NEEDS_INPUT",
+                generation_mode="DETERMINISTIC_SUPPORTED",
+                trusted=True,
+                requires_human_review=False,
+                pattern_id=detected_pattern_id,
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                warnings=arch_validation.warnings,
+                reasoning=reasoning.model_dump(),
+                next_steps=["Provide the missing deterministic architecture inputs and retry generation."],
+                metadata=GenerationMetadata(**metadata_base),
+                error=" ".join(arch_validation.errors),
+            )
+
+        try:
+            plan = self.plan_builder.build(
+                architecture=normalized,
+                pattern=pattern_obj,
+                reasoning=reasoning,
+                options=options,
+                settings=self.settings,
+            )
+        except Exception as exc:
+            logger.exception("Plan builder failed")
+            return self._failed(
+                metadata_base, reasoning, str(exc),
+                "Plan building failed — review architecture and reasoning output.",
+            )
+
+        # 7. If plan builder returned UNSUPPORTED (e.g. private ECS + no NAT)
+        if plan.generation_mode == "UNSUPPORTED":
+            return self._unsupported(
+                metadata_base,
+                plan.warnings,
+                arch_validation.supported_resources,
+                [],
+                error=plan.warnings[-1] if plan.warnings else "Strategy resolution failed.",
+                next_steps=reasoning.required_inputs or ["Review architecture networking configuration."],
+                reasoning=reasoning.model_dump(),
+                pattern_id=detected_pattern_id,
+                deployment_strategy=plan.deployment_strategy,
+            )
+
+        # 8. Render deterministic files
         try:
             files = self._render_plan(plan)
             self.writer.write(files)
         except Exception as exc:
             logger.exception("Terraform template rendering failed")
-            return GenerationResponse(
-                generation_status="FAILED",
-                supported_resources=plan.supported_resources,
-                warnings=plan.warnings,
-                repairs=plan.repairs,
-                derived_resources=plan.derived_resources,
-                metadata=GenerationMetadata(**metadata_base),
-                error=f"Template rendering failed: {type(exc).__name__}: {exc}",
+            return self._failed(
+                metadata_base, reasoning, f"Template rendering failed: {type(exc).__name__}: {exc}",
             )
 
+        # 9. Safety policy check
+        artifact_list = [FileArtifact(path=f["path"], content=f["content"]) for f in files]
+        safety_result = self.safety_checker.check(artifact_list, plan)
+
+        # 10. Build file artifacts for response
+        file_artifacts = [FileArtifact(path=f["path"], content=f["content"]) for f in files]
+
+        # 11. Reviewer (optional, LLM-only)
+        reviewer_llm = llm if reviewer_enabled else None
+        review_result = self.reviewer_agent.review(
+            architecture=normalized,
+            plan=plan,
+            files=file_artifacts,
+            validation_result=None,  # No validation at this stage; filled in by generate-and-validate
+            safety_findings=safety_result,
+            llm=reviewer_llm,
+        )
+
+        # 12. Determine final trust and status
+        has_critical_safety = safety_result.has_critical
+        has_critical_review = bool(review_result.critical_issues)
+        trusted = not has_critical_safety and not has_critical_review
+        requires_human_review = has_critical_safety or has_critical_review
+        generation_status = "NEEDS_REVIEW" if requires_human_review else "SUCCESS"
+
         metadata_base["generated_file_count"] = len(files)
+
         return GenerationResponse(
-            generation_status="SUCCESS",
+            generation_status=generation_status,
+            generation_mode=plan.generation_mode,
+            trusted=trusted,
+            requires_human_review=requires_human_review,
+            pattern_id=plan.pattern_id,
+            deployment_strategy=plan.deployment_strategy,
             supported_resources=plan.supported_resources,
-            files=files,
+            files=file_artifacts,
             derived_resources=plan.derived_resources,
             repairs=plan.repairs,
-            warnings=plan.warnings,
+            warnings=[*plan.warnings, *arch_validation.warnings],
+            runtime_risks=plan.runtime_risks,
+            validation_assertions=plan.validation_assertions,
+            safety_findings=[f.model_dump() for f in safety_result.findings],
+            reasoning=reasoning.model_dump(),
+            review=review_result.model_dump(),
             next_steps=plan.next_steps,
             metadata=GenerationMetadata(**metadata_base),
         )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _find_pattern(self, normalized: NormalizedArchitecture):
+        for pattern in self.registry.patterns:
+            if pattern.matches(normalized):
+                return pattern
+        return None
 
     def _render_plan(self, plan: TerraformGenerationPlan) -> list[dict[str, str]]:
         if plan.pattern_id == "static_site_s3_cloudfront_route53_https":
@@ -155,6 +300,156 @@ class TerraformGeneratorService:
             "README.generated.md": _static_readme(context),
         }
 
+    def _handle_no_pattern(
+        self,
+        normalized: NormalizedArchitecture,
+        reasoning,
+        arch_validation,
+        metadata_base: dict,
+        options: GenerateOptions,
+        draft_fallback_enabled: bool,
+        llm,
+    ) -> GenerationResponse:
+        if not draft_fallback_enabled or llm is None:
+            mode = "UNSUPPORTED"
+            return GenerationResponse(
+                generation_status="UNSUPPORTED",
+                generation_mode=mode,
+                trusted=False,
+                requires_human_review=True,
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                warnings=arch_validation.warnings,
+                reasoning=reasoning.model_dump(),
+                next_steps=[
+                    "Create a PatternDefinition with required provider types, repair rules, and renderer templates.",
+                    "Or enable TERRAFORM_LLM_DRAFT_FALLBACK_ENABLED=true to generate an untrusted LLM draft.",
+                ],
+                metadata=GenerationMetadata(**metadata_base),
+                error=self.registry.missing_pattern_message(normalized),
+            )
+
+        # LLM draft fallback
+        draft = self.draft_generator.generate_draft(normalized, reasoning, llm)
+        if draft.draft_status == "FAILED":
+            return GenerationResponse(
+                generation_status="FAILED",
+                generation_mode="LLM_DRAFT_UNSUPPORTED",
+                trusted=False,
+                requires_human_review=True,
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                warnings=draft.warnings,
+                reasoning=reasoning.model_dump(),
+                metadata=GenerationMetadata(**metadata_base),
+                error=draft.error or "LLM draft generation failed.",
+            )
+
+        draft_artifacts = [FileArtifact(path=f.path, content=f.content) for f in draft.files]
+
+        # Build a minimal plan for safety checking
+        dummy_plan = TerraformGenerationPlan(
+            pattern_id="llm_draft",
+            generation_mode="LLM_DRAFT_UNSUPPORTED",
+            project_name=options.project_name or self.settings.default_project_name,
+            environment=options.environment or self.settings.default_environment,
+            aws_region=options.aws_region or self.settings.default_aws_region,
+            architecture_id=normalized.architecture_id,
+            architecture_version=normalized.architecture_version,
+        )
+        safety_result = self.safety_checker.check(draft_artifacts, dummy_plan)
+
+        metadata_base["generated_file_count"] = len(draft_artifacts)
+        return GenerationResponse(
+            generation_status="NEEDS_REVIEW",
+            generation_mode="LLM_DRAFT_UNSUPPORTED",
+            trusted=False,
+            requires_human_review=True,
+            files=draft_artifacts,
+            warnings=[*draft.warnings, *arch_validation.warnings],
+            safety_findings=[f.model_dump() for f in safety_result.findings],
+            reasoning=reasoning.model_dump(),
+            next_steps=[
+                "DRAFT: This Terraform was generated by an LLM. Do NOT deploy without human review.",
+                "Run terraform fmt, init -backend=false, and validate before further analysis.",
+                "Address all safety findings before considering deployment.",
+            ],
+            metadata=GenerationMetadata(**metadata_base),
+        )
+
+    def _unsupported(
+        self,
+        metadata_base: dict,
+        warnings: list,
+        supported_resources: list,
+        unsupported_resources: list,
+        error: str,
+        next_steps: list | None = None,
+        reasoning=None,
+        pattern_id: str | None = None,
+        deployment_strategy: str | None = None,
+    ) -> GenerationResponse:
+        return GenerationResponse(
+            generation_status="UNSUPPORTED",
+            generation_mode="UNSUPPORTED",
+            trusted=False,
+            requires_human_review=True,
+            pattern_id=pattern_id,
+            deployment_strategy=deployment_strategy,
+            supported_resources=sorted(set(supported_resources)),
+            unsupported_resources=unsupported_resources,
+            warnings=warnings,
+            reasoning=reasoning.model_dump() if reasoning else None,
+            next_steps=next_steps or [],
+            metadata=GenerationMetadata(**metadata_base),
+            error=error,
+        )
+
+    def _needs_input_response(
+        self,
+        metadata_base: dict,
+        reasoning,
+        arch_validation,
+        pattern_id: str | None,
+    ) -> GenerationResponse:
+        return GenerationResponse(
+            generation_status="NEEDS_INPUT",
+            generation_mode="DETERMINISTIC_SUPPORTED",
+            trusted=False,
+            requires_human_review=True,
+            pattern_id=pattern_id,
+            supported_resources=sorted(set(arch_validation.supported_resources)),
+            warnings=[*arch_validation.warnings, *reasoning.warnings],
+            runtime_risks=reasoning.runtime_risks,
+            reasoning=reasoning.model_dump(),
+            next_steps=reasoning.required_inputs or [
+                "Review the networking configuration and add NAT Gateway or VPC endpoints for private ECS.",
+            ],
+            metadata=GenerationMetadata(**metadata_base),
+            error="Reasoning identified a dangerous or incomplete architecture configuration. "
+                  "Review runtime_risks and required_inputs before generating.",
+        )
+
+    def _failed(
+        self,
+        metadata_base: dict,
+        reasoning,
+        error: str,
+        next_step: str = "Review the error and architecture, then retry.",
+    ) -> GenerationResponse:
+        return GenerationResponse(
+            generation_status="FAILED",
+            generation_mode="FAILED",
+            trusted=False,
+            requires_human_review=True,
+            reasoning=reasoning.model_dump() if reasoning else None,
+            next_steps=[next_step],
+            metadata=GenerationMetadata(**metadata_base),
+            error=error,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Static site renderer helpers (unchanged from original)
+# ---------------------------------------------------------------------------
 
 def _static_versions_tf() -> str:
     return """terraform {

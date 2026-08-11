@@ -49,7 +49,7 @@ resource "aws_ecs_service" "{{ ecs_service_label }}" {
   network_configuration {
     subnets          = [{% for subnet in ecs_subnets %}aws_subnet.{{ subnet.label }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
     security_groups  = [aws_security_group.{{ ecs_sg_label }}.id]
-    assign_public_ip = false
+    assign_public_ip = {{ assign_public_ip | lower }}
   }
 
 {% if alb_label %}
