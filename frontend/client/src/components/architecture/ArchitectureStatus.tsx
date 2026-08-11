@@ -7,6 +7,7 @@ interface ArchitectureStatusBadgeProps {
 
 const styles: Record<ArchitectureStatusType, string> = {
   READY_FOR_REVIEW: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  DRAFT_REVISION: "bg-violet-500/10 text-violet-300 border-violet-500/30",
   APPROVED: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
   NEEDS_CLARIFICATION: "bg-sky-500/10 text-sky-300 border-sky-500/30",
   UNSUPPORTED: "bg-red-500/10 text-red-300 border-red-500/30",

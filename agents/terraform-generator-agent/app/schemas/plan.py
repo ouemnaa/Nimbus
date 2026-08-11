@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class TerraformGenerationPlan(BaseModel):
+    pattern_id: str
+    project_name: str
+    environment: str
+    aws_region: str
+    architecture_id: str
+    architecture_version: str
+    required_inputs: list[str] = Field(default_factory=list)
+    resources: dict[str, Any] = Field(default_factory=dict)
+    derived_resources: list[dict[str, Any]] = Field(default_factory=list)
+    repairs: list[dict[str, str]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    template_set: list[str] = Field(default_factory=list)
+    supported_resources: list[str] = Field(default_factory=list)
+    unsupported_resources: list[str] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+    def renderer_context(self) -> dict[str, Any]:
+        return {
+            "pattern_id": self.pattern_id,
+            "project_name": self.project_name,
+            "environment": self.environment,
+            "region": self.aws_region,
+            "architecture_id": self.architecture_id,
+            "architecture_version": self.architecture_version,
+            "required_inputs": self.required_inputs,
+            "resources": self.resources,
+            "derived_resources": self.derived_resources,
+            "repairs": self.repairs,
+            "warnings": self.warnings,
+            **self.resources,
+        }

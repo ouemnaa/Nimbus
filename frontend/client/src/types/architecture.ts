@@ -1,5 +1,6 @@
 export type ArchitectureStatus =
   | "READY_FOR_REVIEW"
+  | "DRAFT_REVISION"
   | "APPROVED"
   | "NEEDS_CLARIFICATION"
   | "UNSUPPORTED";
@@ -138,4 +139,97 @@ export interface AnalyzeArchitectureResponse {
     model: string;
     generation_duration_ms: number;
   };
+}
+
+export interface BackendProject {
+  id: string;
+  title: string;
+  slug: string;
+  initialRequirement: string;
+  context: Record<string, unknown>;
+  currentVersionId: string | null;
+  status: ArchitectureStatus;
+  userId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackendArchitectureVersion {
+  id: string;
+  projectId: string;
+  version: string;
+  parentVersionId: string | null;
+  status: ArchitectureStatus;
+  architecture: CanonicalArchitecture;
+  reportMarkdown: string;
+  simpleDiagramMermaid: string | null;
+  advancedDiagramMermaid: string | null;
+  changeSummary: string[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface BackendChatMessage {
+  id: string;
+  projectId: string;
+  architectureVersionId: string | null;
+  role: "user" | "assistant" | "system";
+  content: string;
+  intent: "INITIAL" | "EXPLAIN" | "MODIFY" | "CLARIFY" | "UNSUPPORTED" | "SYSTEM";
+  architectureChanged: boolean;
+  createdAt: string;
+}
+
+export interface BackendChangeRequest {
+  id: string;
+  projectId: string;
+  fromVersionId: string;
+  toVersionId: string | null;
+  userMessage: string;
+  changeSummary: string[];
+  status: "pending" | "accepted" | "discarded";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectWorkspaceResponse {
+  project: BackendProject;
+  currentVersion: BackendArchitectureVersion | null;
+  versions: BackendArchitectureVersion[];
+  messages: BackendChatMessage[];
+}
+
+export interface ProjectMessageResponse {
+  intent: "EXPLAIN" | "MODIFY" | "CLARIFY" | "UNSUPPORTED";
+  architectureChanged: boolean;
+  answer: string;
+  messages: BackendChatMessage[];
+  project?: BackendProject | null;
+  currentVersion?: BackendArchitectureVersion | null;
+  draftVersion?: BackendArchitectureVersion | null;
+  changeRequest?: BackendChangeRequest | null;
+  changeSummary: string[];
+}
+
+export interface TerraformFile {
+  path: string;
+  content: string;
+}
+
+export interface TerraformGeneration {
+  id: string;
+  projectId: string;
+  architectureVersionId: string;
+  status: string;
+  files: TerraformFile[];
+  warnings: string[];
+  nextSteps: string[];
+  metadata: Record<string, unknown>;
+  supportedResources: string[];
+  unsupportedResources: string[];
+  derivedResources: Record<string, unknown>[];
+  repairs: Record<string, unknown>[];
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

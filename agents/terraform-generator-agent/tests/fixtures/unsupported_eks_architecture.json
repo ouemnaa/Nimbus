@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "architecture_id": "dev-eks-app",
+  "architecture_version": "1.0.0",
+  "cloud": {"provider": "aws", "region": "us-east-1"},
+  "resources": [
+    {
+      "id": "dev-vpc",
+      "name": "dev-vpc",
+      "provider_type": "aws_vpc",
+      "configuration": {"cidr_block": "10.0.0.0/16"}
+    },
+    {
+      "id": "dev-eks-cluster",
+      "name": "dev-eks-cluster",
+      "provider_type": "aws_eks_cluster",
+      "configuration": {}
+    }
+  ],
+  "relationships": []
+}

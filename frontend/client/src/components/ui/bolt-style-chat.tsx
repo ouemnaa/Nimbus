@@ -95,7 +95,7 @@ function ModelSelector({
       {isOpen ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[240px] overflow-hidden rounded-2xl border border-gold-soft/15 bg-[rgba(17,22,29,0.96)] shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[240px] overflow-hidden rounded-2xl border border-gold-soft/15 bg-bg-elevated/95 shadow-md backdrop-blur-xl">
             <div className="p-2">
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
                 Select Mode
@@ -176,7 +176,7 @@ function ChatInput({
   return (
     <div className="relative mx-auto w-full max-w-[720px]">
       <div className="pointer-events-none absolute -inset-[1px] rounded-[28px] bg-gradient-to-b from-gold-soft/20 via-gold-soft/5 to-transparent" />
-      <div className="relative rounded-[28px] border border-gold-soft/15 bg-[linear-gradient(180deg,rgba(20,27,36,0.98),rgba(11,15,24,0.98))] shadow-[0_28px_120px_rgba(0,0,0,0.55),0_0_40px_rgba(249,217,171,0.08)]">
+      <div className="relative rounded-[28px] border border-gold-soft/15 bg-bg-surface shadow-md">
         <textarea
           ref={textareaRef}
           value={message}
@@ -201,7 +201,7 @@ function ChatInput({
               {showAttachMenu ? (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
-                  <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[190px] overflow-hidden rounded-2xl border border-gold-soft/15 bg-[rgba(17,22,29,0.96)] shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+                  <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[190px] overflow-hidden rounded-2xl border border-gold-soft/15 bg-bg-elevated/95 shadow-md backdrop-blur-xl">
                     <div className="p-2">
                       {[
                         { icon: <Paperclip className="size-4" />, label: "Upload file" },
@@ -426,7 +426,7 @@ export function BoltStyleChat({
       <div className="absolute left-1/2 top-[66%] flex h-full w-full -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden px-4 sm:top-1/2">
         <div className="mb-6 text-center">
           <div className="mb-6 flex justify-center">
-            <div className="rounded-[28px] border border-gold-soft/15 bg-[rgba(17,22,29,0.82)] p-2 shadow-[0_20px_70px_rgba(0,0,0,0.45),0_0_40px_rgba(249,217,171,0.08)] backdrop-blur-xl">
+            <div className="rounded-[28px] border border-gold-soft/15 bg-bg-elevated/80 p-2 shadow-md backdrop-blur-xl">
               <img
                 src={logo}
                 alt="Nimbus logo"

@@ -9,12 +9,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { mockArchitecture } from "@/data/mockArchitecture";
 import { useArchitecture } from "@/hooks/useArchitecture";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import {
+  acceptDraftVersion,
+  discardDraftVersion,
+  generateTerraform,
+  getLatestTerraformGeneration,
+  getProjectWorkspace,
+  sendProjectMessage,
+} from "@/services/architectureService";
 import type {
   AnalyzeArchitectureResponse,
+  BackendArchitectureVersion,
   CanonicalArchitecture,
+  ProjectWorkspaceResponse,
+  TerraformGeneration,
 } from "@/types/architecture";
-import { ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
 function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
@@ -34,9 +44,8 @@ function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
 }
 
 function extractMermaidDiagrams(markdown: string): string[] {
-  return Array.from(
-    markdown.matchAll(/```mermaid\s*([\s\S]*?)```/gi),
-    (match) => match[1].trim()
+  return Array.from(markdown.matchAll(/```mermaid\s*([\s\S]*?)```/gi), match =>
+    match[1].trim()
   );
 }
 
@@ -100,12 +109,35 @@ function prepareArchitecture(
   };
 }
 
+function prepareWorkspaceArchitecture(
+  workspace: ProjectWorkspaceResponse
+): CanonicalArchitecture {
+  const version = workspace.currentVersion;
+  if (!version) {
+    return mockArchitecture;
+  }
+
+  return prepareArchitecture({
+    architecture: version.architecture,
+    report_markdown: version.reportMarkdown,
+    metadata: version.metadata as AnalyzeArchitectureResponse["metadata"],
+  });
+}
+
 export default function WorkspacePage() {
   const { projectId } = useParams();
   const [storedResponse] = useState(loadStoredArchitecture);
   const initialArchitecture = prepareArchitecture(storedResponse);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
+  const [error, setError] = useState<string | null>(null);
+  const [draftVersion, setDraftVersion] =
+    useState<BackendArchitectureVersion | null>(null);
+  const [terraformGeneration, setTerraformGeneration] =
+    useState<TerraformGeneration | null>(null);
+  const [isGeneratingTerraform, setIsGeneratingTerraform] = useState(false);
+  const [messages, setMessages] = useState<
+    Array<{ role: string; content: string }>
+  >([
     {
       role: "user",
       content:
@@ -120,31 +152,153 @@ export default function WorkspacePage() {
   const [followUp, setFollowUp] = useState("");
   const { architecture, status, updateStatus, updateArchitecture } =
     useArchitecture(initialArchitecture);
-  const [savedStatus, setSavedStatus] = useLocalStorage(
-    `architecture-status-${projectId}`,
-    status
-  );
 
-  // Load saved status on mount
   useEffect(() => {
-    if (savedStatus) {
-      updateStatus(savedStatus);
+    if (!projectId) {
+      return;
     }
-  }, []);
 
-  // Save status to localStorage
-  useEffect(() => {
-    setSavedStatus(status);
-  }, [status, setSavedStatus]);
+    let isMounted = true;
+    setIsAnalyzing(true);
+    setError(null);
 
-  const handleFollowUp = () => {
-    if (followUp.trim()) {
-      setMessages([
-        ...messages,
-        { role: "user", content: followUp },
-        { role: "assistant", content: "Follow-up noted. Architecture updated locally." },
-      ]);
-      setFollowUp("");
+    Promise.all([
+      getProjectWorkspace(projectId),
+      getLatestTerraformGeneration(projectId),
+    ])
+      .then(([workspace, latestTerraform]) => {
+        if (!isMounted) {
+          return;
+        }
+        const loadedArchitecture = prepareWorkspaceArchitecture(workspace);
+        updateArchitecture(loadedArchitecture);
+        updateStatus(loadedArchitecture.status);
+        setMessages(
+          workspace.messages.map(message => ({
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        setDraftVersion(
+          workspace.versions.find(
+            version => version.status === "DRAFT_REVISION"
+          ) || null
+        );
+        setTerraformGeneration(latestTerraform);
+      })
+      .catch(error => {
+        if (isMounted) {
+          setError(
+            error instanceof Error ? error.message : "Could not load workspace."
+          );
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsAnalyzing(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [projectId, updateArchitecture, updateStatus]);
+
+  const handleFollowUp = async () => {
+    const trimmed = followUp.trim();
+    if (!trimmed || !projectId) {
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError(null);
+    setFollowUp("");
+
+    try {
+      const response = await sendProjectMessage(projectId, trimmed);
+      setMessages(
+        response.messages.map(message => ({
+          role: message.role,
+          content: message.content,
+        }))
+      );
+      if (response.architectureChanged && response.draftVersion) {
+        setDraftVersion(response.draftVersion);
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not send message."
+      );
+      setFollowUp(trimmed);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const applyWorkspace = (workspace: ProjectWorkspaceResponse) => {
+    const loadedArchitecture = prepareWorkspaceArchitecture(workspace);
+    updateArchitecture(loadedArchitecture);
+    updateStatus(loadedArchitecture.status);
+    setMessages(
+      workspace.messages.map(message => ({
+        role: message.role,
+        content: message.content,
+      }))
+    );
+    setDraftVersion(
+      workspace.versions.find(version => version.status === "DRAFT_REVISION") ||
+        null
+    );
+  };
+
+  const handleAcceptDraft = async () => {
+    if (!projectId || !draftVersion) {
+      return;
+    }
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      applyWorkspace(await acceptDraftVersion(projectId, draftVersion.id));
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not accept draft."
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!projectId || !draftVersion) {
+      return;
+    }
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      applyWorkspace(await discardDraftVersion(projectId, draftVersion.id));
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not discard draft."
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleGenerateTerraform = async () => {
+    if (!projectId) {
+      return;
+    }
+    setIsGeneratingTerraform(true);
+    setError(null);
+    try {
+      setTerraformGeneration(await generateTerraform(projectId));
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not generate Terraform."
+      );
+    } finally {
+      setIsGeneratingTerraform(false);
     }
   };
 
@@ -160,29 +314,75 @@ export default function WorkspacePage() {
 
           <div className="flex-1 overflow-auto p-4 space-y-4">
             {/* Context Info */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              <Card className="p-3 bg-[rgba(17,22,29,0.82)] border border-gold-soft/15 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
-              <div className="space-y-2">
-                <div>
-                  <span className="text-muted-foreground">Environment:</span>
-                  <span className="ml-2 text-foreground">
-                    {architecture.requirement_summary.environment}
-                  </span>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <Card className="p-3 bg-card border border-border/40 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-muted-foreground">Environment:</span>
+                    <span className="ml-2 text-foreground">
+                      {architecture.requirement_summary.environment}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Budget:</span>
+                    <span className="ml-2 text-foreground">
+                      {(
+                        architecture.requirement_summary.budget_preference ||
+                        "not specified"
+                      ).replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Cloud:</span>
+                    <span className="ml-2 text-foreground">
+                      {architecture.cloud.provider}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Budget:</span>
-                  <span className="ml-2 text-foreground">
-                    {(architecture.requirement_summary.budget_preference ||
-                      "not specified").replace(/_/g, " ")}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Cloud:</span>
-                  <span className="ml-2 text-foreground">{architecture.cloud.provider}</span>
-                </div>
-              </div>
               </Card>
             </motion.div>
+
+            {/* Messages */}
+            {error && (
+              <Card className="border border-red-400/25 bg-red-950/20 p-3 text-sm text-red-100 shadow-none">
+                <div className="flex gap-2">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              </Card>
+            )}
+
+            {draftVersion && (
+              <Card className="border border-gold-soft/30 bg-gold-soft/10 p-3 shadow-none">
+                <p className="text-sm font-semibold text-foreground">
+                  Draft architecture update created
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Version {draftVersion.version} is ready for review.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleAcceptDraft}
+                    disabled={isAnalyzing}
+                  >
+                    Accept changes
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDiscardDraft}
+                    disabled={isAnalyzing}
+                  >
+                    Discard changes
+                  </Button>
+                </div>
+              </Card>
+            )}
 
             {/* Messages */}
             {messages.map((msg, idx) => (
@@ -196,13 +396,15 @@ export default function WorkspacePage() {
                   className={`p-3 transition-all duration-300 shadow-none ${
                     msg.role === "user"
                       ? "bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 border border-gold-soft/20 hover:border-gold-soft/40"
-                      : "bg-[rgba(17,22,29,0.82)] border border-gold-soft/10 hover:border-gold-soft/30"
+                      : "bg-card border border-border/40 hover:border-gold-soft/30"
                   }`}
                 >
-                <p className="text-xs font-semibold text-muted-foreground mb-1">
-                  {msg.role === "user" ? "You" : "Architect"}
-                </p>
-                <p className="text-sm text-foreground">{msg.content}</p>
+                  <p className="text-xs font-semibold text-muted-foreground mb-1">
+                    {msg.role === "user" ? "You" : "Architect"}
+                  </p>
+                  <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
+                    {msg.content}
+                  </p>
                 </Card>
               </motion.div>
             ))}
@@ -215,13 +417,13 @@ export default function WorkspacePage() {
             <Textarea
               placeholder="Ask about the architecture or request a change…"
               value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
-              className="min-h-20 resize-none bg-[rgba(7,9,13,0.62)] border border-gold-soft/15 focus:border-gold-soft/45 focus:shadow-[0_0_15px_rgba(249,217,171,0.15)] transition-all duration-300 text-text-primary"
+              onChange={e => setFollowUp(e.target.value)}
+              className="min-h-20 resize-none bg-bg-deep border border-border/40 focus:border-gold-soft/45 focus:ring-1 focus:ring-gold-soft/45 transition-all duration-300 text-text-primary"
             />
             <Button
               onClick={handleFollowUp}
-              disabled={!followUp.trim()}
-              className="w-full gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-bg-main hover:shadow-[0_0_15px_rgba(228,187,150,0.3)] transition-all duration-300 border-none"
+              disabled={!followUp.trim() || isAnalyzing}
+              className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 shadow-sm hover:shadow"
             >
               <ArrowRight className="w-4 h-4" />
               Send
@@ -237,6 +439,9 @@ export default function WorkspacePage() {
             onStatusChange={updateStatus}
             onArchitectureUpdate={updateArchitecture}
             metadata={storedResponse?.metadata}
+            terraformGeneration={terraformGeneration}
+            isGeneratingTerraform={isGeneratingTerraform}
+            onGenerateTerraform={handleGenerateTerraform}
           />
         </div>
       </div>

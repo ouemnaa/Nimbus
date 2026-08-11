@@ -38,13 +38,13 @@ export default function ProjectsPage() {
             transition={{ duration: 0.6 }}
           >
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-[#F7EEDC] via-gold-cloud to-storm-slate bg-clip-text text-transparent">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-text-primary via-primary to-text-secondary bg-clip-text text-transparent">
                 Architecture Projects
               </h1>
-              <p className="text-[#9A9489] mt-1">Manage and review your architectures</p>
+              <p className="text-text-muted mt-1">Manage and review your architectures</p>
             </div>
             <Link href="/">
-              <Button className="gap-2 bg-gradient-to-br from-gold-cloud to-deep-ochre text-[#08090D] hover:shadow-[0_0_20px_rgba(249,217,171,0.3)] transition-all duration-300 border-none font-semibold">
+              <Button className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm hover:shadow transition-all duration-300 font-semibold">
                 <Plus className="w-4 h-4" />
                 New Architecture
               </Button>
@@ -64,7 +64,7 @@ export default function ProjectsPage() {
                 placeholder="Search projects..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 !bg-[#1A2233] border border-[#2A3A52] focus:border-gold-soft/50 transition-all duration-300 text-[#F7EEDC] placeholder:text-[#8F8B84]"
+                className="pl-10 bg-card border-border focus-visible:ring-primary focus-visible:border-primary transition-all duration-300 text-text-primary placeholder:text-text-muted"
               />
             </div>
 
@@ -116,16 +116,16 @@ export default function ProjectsPage() {
                 transition={{ duration: 0.4 }}
               >
                 <Link href={`/workspace/${project.id}`}>
-                  <Card className="p-4 !bg-[#1A2233] border border-[#2A3A52] hover:border-gold-soft/50 transition-all cursor-pointer shadow-lg shadow-black/30 hover:shadow-[0_20px_70px_rgba(228,187,150,0.1)]">
+                  <Card className="p-4 bg-card border-border hover:border-gold-soft/50 transition-all cursor-pointer shadow-sm hover:shadow-md">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-[#F7EEDC] group-hover:text-gold-soft transition-colors">
+                      <h3 className="font-semibold text-text-primary group-hover:text-gold-soft transition-colors">
                         {project.title}
                       </h3>
-                      <p className="text-sm text-[#9A9489] mt-1 line-clamp-2">
+                      <p className="text-sm text-text-secondary mt-1 line-clamp-2">
                         {project.requirement}
                       </p>
-                      <div className="flex items-center gap-3 mt-3 text-xs text-[#8F8B84]">
+                      <div className="flex items-center gap-3 mt-3 text-xs text-text-muted">
                         <span>AWS</span>
                         <span>•</span>
                         <span>{project.context?.environment || "development"}</span>
@@ -149,8 +149,8 @@ export default function ProjectsPage() {
 
           {filteredProjects.length === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
-              <Card className="p-12 text-center !bg-[#1A2233] border border-[#2A3A52]">
-              <p className="text-muted-foreground">No projects found</p>
+              <Card className="p-12 text-center bg-card border-border">
+              <p className="text-text-muted">No projects found</p>
               </Card>
             </motion.div>
           )}

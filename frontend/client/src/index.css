@@ -102,9 +102,87 @@
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
+
+  /* Dynamic Shadows mapped to theme variables */
+  --shadow-sm: var(--shadow-sm-val);
+  --shadow-md: var(--shadow-md-val);
+  --shadow-lg: var(--shadow-lg-val);
+  --shadow-xl: var(--shadow-xl-val);
 }
 
-:root, .dark {
+/* LIGHT MODE: Warm Cream / Beige Theme */
+:root {
+  --radius: 0.65rem;
+  --primary: #8E5E38;
+  --primary-foreground: #FCFAF2;
+  --sidebar-primary: #8E5E38;
+  --sidebar-primary-foreground: #FCFAF2;
+  --background: #F5F2EB;
+  --foreground: #231C16;
+  --card: #FCFAF2;
+  --card-foreground: #231C16;
+  --popover: #FCFAF2;
+  --popover-foreground: #231C16;
+  --secondary: rgba(142, 94, 56, 0.08);
+  --secondary-foreground: #231C16;
+  --muted: #EDE8DC;
+  --muted-foreground: #7A7065;
+  --accent: rgba(142, 94, 56, 0.12);
+  --accent-foreground: #8E5E38;
+  --destructive: oklch(0.577 0.183 27.24);
+  --destructive-foreground: #FCFAF2;
+  --border: rgba(142, 94, 56, 0.16);
+  --input: rgba(142, 94, 56, 0.2);
+  --ring: rgba(142, 94, 56, 0.45);
+  --chart-1: #8E5E38;
+  --chart-2: #B68962;
+  --chart-3: #D2B48C;
+  --chart-4: #5D4037;
+  --chart-5: #4E342E;
+  --sidebar: #EFEBE0;
+  --sidebar-foreground: #4A3F35;
+  --sidebar-accent: rgba(142, 94, 56, 0.10);
+  --sidebar-accent-foreground: #8E5E38;
+  --sidebar-border: rgba(142, 94, 56, 0.12);
+  --sidebar-ring: rgba(142, 94, 56, 0.45);
+
+  /* Nimbus specific tokens */
+  --bg-main: #F5F2EB;
+  --bg-deep: #EDE8DC;
+  --bg-surface: #FCFAF2;
+  --bg-surface-soft: #EFEBE0;
+  --bg-elevated: #E5DDCB;
+  --storm-navy: #8E5E38;
+  --storm-blue: #A08269;
+  --storm-slate: #7A7065;
+  --cloud-shadow: rgba(44, 37, 32, 0.16);
+  --mist-gray: #8E8275;
+  --gold-soft: #8E5E38;
+  --gold-cloud: #B68962;
+  --warm-sand: #C9A589;
+  --bronze-muted: #AA9280;
+  --old-gold: #B09C83;
+  --deep-ochre: #8A5E3B;
+  --text-primary: #231C16;
+  --text-secondary: #4A3F35;
+  --text-muted: #7A7065;
+
+  /* Gradient variables */
+  --bg-grad-1: rgba(142, 94, 56, 0.08);
+  --bg-grad-2: rgba(239, 235, 224, 0.4);
+  --bg-grad-3: #FAF8F5;
+  --bg-grad-4: #F5F2EB;
+  --bg-grad-5: #EDE8DC;
+
+  /* High contrast softer, smoother shadows for light mode */
+  --shadow-sm-val: 0 2px 8px rgba(44, 37, 32, 0.06);
+  --shadow-md-val: 0 8px 20px rgba(44, 37, 32, 0.1);
+  --shadow-lg-val: 0 16px 36px rgba(44, 37, 32, 0.14);
+  --shadow-xl-val: 0 24px 50px rgba(44, 37, 32, 0.18);
+}
+
+/* DARK MODE: Storm Navy & Charcoal Theme */
+.dark {
   --radius: 0.65rem;
   --primary: #E4BB96;
   --primary-foreground: #08090D;
@@ -159,6 +237,19 @@
   --text-primary: #F7EEDC;
   --text-secondary: #C9BFAF;
   --text-muted: #8F8B84;
+
+  /* Gradient variables */
+  --bg-grad-1: rgba(249, 217, 171, 0.16);
+  --bg-grad-2: rgba(42, 67, 83, 0.35);
+  --bg-grad-3: #07090D;
+  --bg-grad-4: #0C1A30;
+  --bg-grad-5: #090B0F;
+
+  /* Dark mode shadows */
+  --shadow-sm-val: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md-val: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg-val: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.6);
+  --shadow-xl-val: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.7);
 }
 
 @layer base {
@@ -168,9 +259,9 @@
   body {
     @apply bg-background text-foreground;
     background:
-      radial-gradient(circle at 65% 18%, rgba(249, 217, 171, 0.16), transparent 28%),
-      radial-gradient(circle at 30% 80%, rgba(42, 67, 83, 0.35), transparent 35%),
-      linear-gradient(135deg, #07090D 0%, #0C1A30 50%, #090B0F 100%);
+      radial-gradient(circle at 65% 18%, var(--bg-grad-1), transparent 28%),
+      radial-gradient(circle at 30% 80%, var(--bg-grad-2), transparent 35%),
+      linear-gradient(135deg, var(--bg-grad-3) 0%, var(--bg-grad-4) 50%, var(--bg-grad-5) 100%);
     background-attachment: fixed;
   }
   button:not(:disabled),

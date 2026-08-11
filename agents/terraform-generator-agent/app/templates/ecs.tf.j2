@@ -1,0 +1,64 @@
+resource "aws_ecs_cluster" "{{ ecs_cluster_label }}" {
+  name = "${local.name_prefix}-cluster"
+}
+
+resource "aws_ecs_task_definition" "{{ task_definition_label }}" {
+  family                   = "${local.name_prefix}-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.ecs_cpu
+  memory                   = var.ecs_memory
+  execution_role_arn       = aws_iam_role.{{ ecs_execution_role_label }}.arn
+
+  container_definitions = jsonencode([{
+    name      = "{{ container_name }}"
+    image     = var.container_image
+    essential = true
+    portMappings = [{
+      containerPort = var.container_port
+      hostPort      = var.container_port
+      protocol      = "tcp"
+    }]
+    environment = [
+      { name = "DB_HOST", value = aws_db_instance.{{ db_label }}.address },
+      { name = "DB_NAME", value = var.db_name },
+      { name = "DB_USER", value = var.db_username }
+    ]
+    secrets = [{
+      name      = "DB_PASSWORD"
+      valueFrom = "${aws_secretsmanager_secret.{{ secret_label }}.arn}:password::"
+    }]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.{{ log_group_label }}.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "ecs"
+      }
+    }
+  }])
+}
+
+resource "aws_ecs_service" "{{ ecs_service_label }}" {
+  name            = "${local.name_prefix}-service"
+  cluster         = aws_ecs_cluster.{{ ecs_cluster_label }}.id
+  task_definition = aws_ecs_task_definition.{{ task_definition_label }}.arn
+  desired_count   = var.ecs_desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [{% for subnet in ecs_subnets %}aws_subnet.{{ subnet.label }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+    security_groups  = [aws_security_group.{{ ecs_sg_label }}.id]
+    assign_public_ip = false
+  }
+
+{% if alb_label %}
+  load_balancer {
+    target_group_arn = aws_lb_target_group.{{ target_group_label }}.arn
+    container_name   = "{{ container_name }}"
+    container_port   = var.container_port
+  }
+{% endif %}
+
+  depends_on = [aws_iam_role_policy_attachment.{{ ecs_execution_role_label }}_managed]
+}

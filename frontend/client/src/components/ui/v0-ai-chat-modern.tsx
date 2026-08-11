@@ -111,8 +111,8 @@ export function VercelV0Chat({
 
             <div className="w-full">
                 <div className={cn(
-                  "relative bg-gradient-to-b from-[#182232] to-[#101724] rounded-2xl border transition-all duration-300 shadow-[0_16px_60px_rgba(0,0,0,0.65),0_0_40px_rgba(249,217,171,0.08)] overflow-hidden",
-                  isFocused ? "border-gold-soft/60 shadow-[0_20px_70px_rgba(0,0,0,0.8),0_0_50px_rgba(249,217,171,0.22)]" : "border-gold-soft/30"
+                  "relative bg-gradient-to-b from-bg-surface-soft to-bg-main rounded-2xl border transition-all duration-300 shadow-sm overflow-hidden border-border/40",
+                  isFocused ? "border-gold-soft/60 shadow-md" : ""
                 )}>
                     <div className="overflow-y-auto">
                         <Textarea
@@ -129,12 +129,12 @@ export function VercelV0Chat({
                             className={cn(
                                 "w-full px-5 py-4",
                                 "resize-none",
-                                "bg-[#0C121D]",
+                                "bg-bg-deep",
                                 "border-none",
-                                "text-[#F7EEDC] text-base leading-relaxed font-normal",
+                                "text-text-primary text-base leading-relaxed font-normal",
                                 "focus:outline-none",
                                 "focus-visible:ring-0 focus-visible:ring-offset-0",
-                                "placeholder:text-[#A8A195] placeholder:text-sm placeholder:font-normal",
+                                "placeholder:text-text-muted placeholder:text-sm placeholder:font-normal",
                                 "min-h-[70px]"
                             )}
                             style={{
@@ -143,11 +143,11 @@ export function VercelV0Chat({
                         />
                     </div>
 
-                    <div className="flex items-center justify-between px-4 py-3 bg-[#121A28] border-t border-gold-soft/15">
+                    <div className="flex items-center justify-between px-4 py-3 bg-bg-surface-soft border-t border-border">
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
-                                className="group px-3 py-1.5 hover:bg-gold-soft/15 rounded-lg transition-all duration-200 flex items-center gap-1.5 text-xs text-[#C9BFAF] hover:text-gold-soft border border-transparent hover:border-gold-soft/20"
+                                className="group px-3 py-1.5 hover:bg-gold-soft/15 rounded-lg transition-all duration-200 flex items-center gap-1.5 text-xs text-text-secondary hover:text-gold-soft border border-transparent hover:border-gold-soft/20"
                             >
                                 <Paperclip className="w-4 h-4 text-gold-cloud group-hover:text-gold-soft transition-colors" />
                                 <span>Attach</span>
@@ -156,7 +156,7 @@ export function VercelV0Chat({
                         <div className="flex items-center gap-3">
                             <button
                                 type="button"
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#F7EEDC] transition-all duration-200 border border-gold-soft/25 hover:border-gold-soft/50 hover:bg-gold-soft/15 hover:text-gold-soft flex items-center justify-between gap-1.5 bg-[#182232]"
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-text-primary transition-all duration-200 border border-gold-soft/25 hover:border-gold-soft/50 hover:bg-gold-soft/15 hover:text-gold-soft flex items-center justify-between gap-1.5 bg-bg-surface"
                             >
                                 <PlusIcon className="w-3.5 h-3.5 text-gold-cloud" />
                                 Project
@@ -168,7 +168,7 @@ export function VercelV0Chat({
                                     "p-2 rounded-lg text-sm transition-all duration-200 border flex items-center justify-center",
                                     value.trim()
                                         ? "bg-gradient-to-br from-gold-cloud via-gold-soft to-deep-ochre text-bg-main hover:shadow-[0_0_20px_rgba(249,217,171,0.4)] border-transparent"
-                                        : "text-text-muted border-gold-soft/20 bg-[#182232]"
+                                        : "text-text-muted border-gold-soft/20 bg-bg-surface"
                                 )}
                             >
                                 <ArrowUpIcon
@@ -221,7 +221,7 @@ function ActionButton({ icon, label }: ActionButtonProps) {
     return (
         <button
             type="button"
-            className="flex items-center gap-2 px-4 py-2 bg-[#182232] hover:bg-[#202C40] rounded-full border border-gold-soft/25 hover:border-gold-soft/55 text-[#F7EEDC] hover:text-gold-soft transition-all duration-200 shadow-md shadow-black/40 hover:shadow-[0_0_20px_rgba(249,217,171,0.15)]"
+            className="flex items-center gap-2 px-4 py-2 bg-bg-surface hover:bg-bg-surface-soft rounded-full border border-gold-soft/25 hover:border-gold-soft/55 text-text-primary hover:text-gold-soft transition-all duration-200 shadow-sm hover:shadow-md"
         >
             {icon}
             <span className="text-xs font-medium">{label}</span>
