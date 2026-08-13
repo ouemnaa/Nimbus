@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .infrastructure_capability_plan import InfrastructureCapabilityPlan
+
 
 AllowedOutputFile = Literal[
     "versions.tf",
@@ -120,6 +122,7 @@ class TerraformResourcePlan(BaseModel):
     cloud_provider: str
     terraform_version: str = ">= 1.5.0"
     required_providers: list[ProviderRequirement] = Field(default_factory=list)
+    infrastructure_capability_plan: InfrastructureCapabilityPlan | None = None
     deployment_targets: list[str] = Field(default_factory=list)
     variables: list[TerraformVariable] = Field(default_factory=list)
     locals: list[TerraformLocal] = Field(default_factory=list)

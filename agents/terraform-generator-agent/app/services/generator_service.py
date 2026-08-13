@@ -387,10 +387,35 @@ class TerraformGeneratorService:
                 terraform_resource_plan=resource_plan.model_dump(mode="json"),
                 architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
                 external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
-                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
                 reasoning=reasoning.model_dump(),
                 metadata=GenerationMetadata(**metadata_base),
                 error="LLM planner returned an empty TerraformResourcePlan",
+            )
+
+        if any(getattr(item, "code", None) == "PLAN_TOO_ABSTRACT" for item in coverage_findings):
+            return GenerationResponse(
+                generation_status="FAILED",
+                generation_mode="FAILED",
+                trusted=False,
+                requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
+                draft_pattern_guess=_guess_draft_pattern(normalized),
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+                runtime_risks=resource_plan.runtime_risks,
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
+                reasoning=reasoning.model_dump(),
+                metadata=GenerationMetadata(**metadata_base),
+                error="LLM planner produced a TerraformResourcePlan that is still too abstract to render safely.",
             )
 
         try:
@@ -425,7 +450,7 @@ class TerraformGeneratorService:
                 architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
                 external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
                 reasoning=reasoning.model_dump(),
-                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
                 metadata=GenerationMetadata(**metadata_base),
                 error=str(exc),
             )
@@ -462,7 +487,7 @@ class TerraformGeneratorService:
                 terraform_resource_plan=resource_plan.model_dump(mode="json"),
                 architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
                 external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
-                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
                 reasoning=reasoning.model_dump(),
                 metadata=GenerationMetadata(**metadata_base),
                 error="Generic renderer produced only shell files; no infrastructure resources were rendered.",
@@ -515,7 +540,7 @@ class TerraformGeneratorService:
                 architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
                 external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
                 validation=validation_result.model_dump(),
-                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
                 safety_findings=[f.model_dump() for f in safety_result.findings],
                 reasoning=reasoning.model_dump(),
                 review=review_result.model_dump(),
@@ -548,7 +573,7 @@ class TerraformGeneratorService:
             architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
             external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
             validation=validation_result.model_dump(),
-            coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+            coverage_findings=_normalize_coverage_findings(coverage_findings),
             safety_findings=[f.model_dump() for f in safety_result.findings],
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
@@ -648,6 +673,19 @@ def _is_shell_only_render(artifacts: list[FileArtifact]) -> bool:
     names = {artifact.path for artifact in artifacts}
     shell_files = {"versions.tf", "providers.tf", "README.generated.md"}
     return bool(names) and names.issubset(shell_files)
+
+
+def _normalize_coverage_findings(coverage_findings) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for finding in coverage_findings:
+        if isinstance(finding, CoverageFinding):
+            normalized.append(finding.model_dump())
+            continue
+        if hasattr(finding, "model_dump"):
+            normalized.append(dict(finding.model_dump()))
+            continue
+        normalized.append(dict(finding))
+    return normalized
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.core.config import Settings
 from app.llm.base import LLMProvider
-from app.planning.terraform_resource_plan_coverage_validator import TerraformResourcePlanCoverageValidator
+from app.planning.terraform_resource_plan_coverage_validator import CoverageFinding, TerraformResourcePlanCoverageValidator
 from app.planning.terraform_resource_plan_schema import TerraformResourcePlan
+from app.planning.capability_extractor import InfrastructureCapabilityExtractor
 from app.rendering.generic_hcl_renderer import GenericHCLRenderer
 from app.schemas.architecture import CanonicalArchitecture
 from app.services.architecture_normalizer import normalize_architecture
@@ -228,6 +229,7 @@ def test_multi_lambda_serverless_synthesis_preserves_lambdas_and_routes(tmp_path
         assert 'payload_format_version = "2.0"' in file_map["api_gateway.tf"]
         assert "Terraform-managed secret values may be stored in Terraform state." in file_map["README.generated.md"]
         assert len(res.architecture_resource_mappings) == 4
+        assert res.terraform_resource_plan["infrastructure_capability_plan"]["capabilities"]
     finally:
         gs.create_provider = orig_create
 
@@ -260,6 +262,17 @@ def test_coverage_findings_are_structured_for_missing_mapping() -> None:
     plan.architecture_resource_mappings = [item for item in plan.architecture_resource_mappings if item.architecture_resource_id != "game-backend-lambda"]
     findings = TerraformResourcePlanCoverageValidator().validate(arch, plan)
     assert any(item.code == "MISSING_MAPPING" and item.architecture_resource_id == "game-backend-lambda" for item in findings)
+
+
+def test_capability_extractor_detects_serverless_http_and_secret_capabilities() -> None:
+    arch = normalize_architecture(_multi_lambda_arch(), "us-east-1")
+    capability_plan = InfrastructureCapabilityExtractor().extract(arch)
+    capability_types = {item.capability_type for item in capability_plan.capabilities}
+    assert "SERVERLESS_COMPUTE" in capability_types
+    assert "PUBLIC_HTTP_ENTRYPOINT" in capability_types
+    assert "EVENT_ROUTING" in capability_types
+    assert "RELATIONAL_DATABASE" in capability_types
+    assert "SECRET_STORAGE" in capability_types
 
 
 def test_aggregate_architecture_resources_can_map_to_multiple_addresses(tmp_path) -> None:
@@ -346,6 +359,85 @@ def test_empty_planned_resources_fail_loudly(tmp_path) -> None:
         res = svc.generate(_unsupported_arch())
         assert res.generation_status == "FAILED"
         assert res.error == "LLM planner returned an empty TerraformResourcePlan"
+    finally:
+        gs.create_provider = orig_create
+        svc.llm_planner.create_plan = orig_create_plan
+
+
+def test_too_abstract_plan_fails_loudly(tmp_path) -> None:
+    settings = _settings(tmp_path, enabled=True)
+    svc = _generator(settings)
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+
+    import app.services.generator_service as gs
+    orig_create = gs.create_provider
+    orig_create_plan = svc.llm_planner.create_plan
+    gs.create_provider = lambda s: mock_llm
+    svc.llm_planner.create_plan = lambda *_args, **_kwargs: (
+        TerraformResourcePlan.model_validate(
+            {
+                "draft_pattern_name": "capability_planned_generic_architecture",
+                "cloud_provider": "AWS",
+                "terraform_version": ">= 1.5.0",
+                "required_providers": [{"name": "aws", "source": "hashicorp/aws", "version": "~> 5.0"}],
+                "infrastructure_capability_plan": {
+                    "cloud_provider": "AWS",
+                    "deployable_architecture_resource_ids": ["api-gateway", "central-backend"],
+                    "capabilities": [
+                        {"capability_type": "PUBLIC_HTTP_ENTRYPOINT", "source_architecture_resource_ids": ["api-gateway"]},
+                        {"capability_type": "SERVERLESS_COMPUTE", "source_architecture_resource_ids": ["central-backend"]},
+                    ],
+                    "provider_service_selections": [
+                        {"capability_type": "PUBLIC_HTTP_ENTRYPOINT", "selected_service": "API Gateway HTTP API", "terraform_primitives": ["aws_apigatewayv2_api"]},
+                        {"capability_type": "SERVERLESS_COMPUTE", "selected_service": "Lambda", "terraform_primitives": ["aws_lambda_function"]},
+                    ],
+                },
+                "resources": [
+                    {
+                        "terraform_type": "aws_apigatewayv2_api",
+                        "name": "http_api",
+                        "file": "api_gateway.tf",
+                        "architecture_resource_id": "api-gateway",
+                        "body": {"name": {"kind": "literal", "value": "demo"}, "protocol_type": {"kind": "literal", "value": "HTTP"}},
+                    }
+                ],
+                "architecture_resource_mappings": [
+                    {
+                        "architecture_resource_id": "api-gateway",
+                        "provider_type": "aws_apigatewayv2_api",
+                        "mapping_status": "RENDERED",
+                        "terraform_addresses": ["aws_apigatewayv2_api.http_api"],
+                    },
+                    {
+                        "architecture_resource_id": "central-backend",
+                        "provider_type": "aws_lambda_function",
+                        "mapping_status": "UNSUPPORTED",
+                        "terraform_addresses": [],
+                    },
+                    {
+                        "architecture_resource_id": "supabase",
+                        "provider_type": "external_supabase",
+                        "mapping_status": "EXTERNAL",
+                        "terraform_addresses": [],
+                    },
+                ],
+            }
+        ),
+        [
+            CoverageFinding(
+                code="PLAN_TOO_ABSTRACT",
+                severity="HIGH",
+                expected="Concrete resources",
+                actual="Too abstract",
+                recommendation="Render more resources",
+            )
+        ],
+    )
+    try:
+        res = svc.generate(_unsupported_arch())
+        assert res.generation_status == "FAILED"
+        assert res.error == "LLM planner produced a TerraformResourcePlan that is still too abstract to render safely."
     finally:
         gs.create_provider = orig_create
         svc.llm_planner.create_plan = orig_create_plan
