@@ -1,6 +1,7 @@
 import type {
   AnalyzeArchitectureRequest,
   AnalyzeArchitectureResponse,
+  BackendProject,
   ProjectMessageResponse,
   ProjectWorkspaceResponse,
   TerraformGeneration,
@@ -65,6 +66,10 @@ export async function createProject(
     method: "POST",
     body: JSON.stringify(request),
   });
+}
+
+export async function listProjects(): Promise<BackendProject[]> {
+  return requestJson<BackendProject[]>("/api/projects");
 }
 
 export async function getProjectWorkspace(

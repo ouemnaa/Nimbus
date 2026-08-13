@@ -24,7 +24,7 @@ import type {
   ProjectWorkspaceResponse,
   TerraformGeneration,
 } from "@/types/architecture";
-import { AlertCircle, ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowRight, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
 import { motion } from "framer-motion";
 
 function loadStoredArchitecture(): AnalyzeArchitectureResponse | null {
@@ -130,6 +130,7 @@ export default function WorkspacePage() {
   const initialArchitecture = prepareArchitecture(storedResponse);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [draftVersion, setDraftVersion] =
     useState<BackendArchitectureVersion | null>(null);
   const [terraformGeneration, setTerraformGeneration] =
@@ -304,131 +305,147 @@ export default function WorkspacePage() {
 
   return (
     <AppShell>
-      <div className="flex h-screen bg-transparent">
+      <div className="flex h-screen bg-transparent relative">
         {/* Left Panel: Conversation */}
-        <div className="w-96 border-r border-gold-soft/10 flex flex-col bg-bg-surface-soft/80 backdrop-blur-md">
-          <WorkspaceHeader
-            title={architecture.title || "Architecture Workspace"}
-            subtitle={`Status: ${status.replace(/_/g, " ")}`}
-          />
+        <div className={`${isSidebarCollapsed ? "w-16" : "w-96"} transition-all duration-300 border-r border-border/40 flex flex-col bg-bg-surface-soft/80 backdrop-blur-md relative z-10 shrink-0`}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="absolute -right-4 top-6 z-20 w-8 h-8 rounded-full bg-card border border-border/40 shadow-md flex items-center justify-center hover:bg-accent hover:text-accent-foreground"
+          >
+            {isSidebarCollapsed ? <ChevronRight className="w-4 h-4"/> : <ChevronLeft className="w-4 h-4"/>}
+          </Button>
 
-          <div className="flex-1 overflow-auto p-4 space-y-4">
-            {/* Context Info */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <Card className="p-3 bg-card border border-border/40 hover:border-gold-soft/30 transition-all duration-300 text-xs shadow-none">
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-muted-foreground">Environment:</span>
-                    <span className="ml-2 text-foreground">
-                      {architecture.requirement_summary.environment}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Budget:</span>
-                    <span className="ml-2 text-foreground">
-                      {(
-                        architecture.requirement_summary.budget_preference ||
-                        "not specified"
-                      ).replace(/_/g, " ")}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Cloud:</span>
-                    <span className="ml-2 text-foreground">
-                      {architecture.cloud.provider}
-                    </span>
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
+          {isSidebarCollapsed ? (
+            <div className="flex flex-col items-center py-6 gap-6 h-full">
+              <MessageSquare className="w-6 h-6 text-primary" />
+            </div>
+          ) : (
+            <>
+              <WorkspaceHeader
+                title={architecture.title || "Architecture Workspace"}
+                subtitle={`Status: ${status.replace(/_/g, " ")}`}
+              />
 
-            {/* Messages */}
-            {error && (
-              <Card className="border border-red-400/25 bg-red-950/20 p-3 text-sm text-red-100 shadow-none">
-                <div className="flex gap-2">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              </Card>
-            )}
-
-            {draftVersion && (
-              <Card className="border border-gold-soft/30 bg-gold-soft/10 p-3 shadow-none">
-                <p className="text-sm font-semibold text-foreground">
-                  Draft architecture update created
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Version {draftVersion.version} is ready for review.
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleAcceptDraft}
-                    disabled={isAnalyzing}
-                  >
-                    Accept changes
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleDiscardDraft}
-                    disabled={isAnalyzing}
-                  >
-                    Discard changes
-                  </Button>
-                </div>
-              </Card>
-            )}
-
-            {/* Messages */}
-            {messages.map((msg, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ opacity: 0, x: msg.role === "user" ? 20 : -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <Card
-                  className={`p-3 transition-all duration-300 shadow-none ${
-                    msg.role === "user"
-                      ? "bg-gradient-to-br from-gold-soft/10 to-bronze-muted/10 border border-gold-soft/20 hover:border-gold-soft/40"
-                      : "bg-card border border-border/40 hover:border-gold-soft/30"
-                  }`}
+              <div className="flex-1 overflow-auto p-5 space-y-2 workspace-scrollbar">
+                {/* Context Info Bento */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
                 >
-                  <p className="text-xs font-semibold text-muted-foreground mb-1">
-                    {msg.role === "user" ? "You" : "Architect"}
-                  </p>
-                  <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
-                    {msg.content}
-                  </p>
-                </Card>
-              </motion.div>
-            ))}
+                  <div className="grid grid-cols-3 gap-2 mb-6">
+                      <div className="flex flex-col p-3 rounded-xl dark:bg-black/20 bg-black/5 dark:border-white/5 border-black/5 shadow-inner">
+                        <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold mb-1">Env</span>
+                        <span className="text-xs dark:text-slate-200 text-slate-800 font-medium truncate">{architecture.requirement_summary.environment}</span>
+                      </div>
+                      <div className="flex flex-col p-3 rounded-xl dark:bg-black/20 bg-black/5 dark:border-white/5 border-black/5 shadow-inner">
+                        <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold mb-1">Budget</span>
+                        <span className="text-xs dark:text-slate-200 text-slate-800 font-medium truncate">{(architecture.requirement_summary.budget_preference || "not specified").replace(/_/g, " ")}</span>
+                      </div>
+                      <div className="flex flex-col p-3 rounded-xl dark:bg-black/20 bg-black/5 dark:border-white/5 border-black/5 shadow-inner">
+                        <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold mb-1">Cloud</span>
+                        <span className="text-xs dark:text-slate-200 text-slate-800 font-medium truncate">{architecture.cloud.provider}</span>
+                      </div>
+                  </div>
+                </motion.div>
 
-            {isAnalyzing && <AgentActivity isAnalyzing={isAnalyzing} />}
-          </div>
+                {error && (
+                  <div className="flex gap-3 items-center border border-red-500/30 dark:bg-red-500/10 bg-red-50 p-3 rounded-xl text-xs dark:text-red-200 text-red-700 mb-6">
+                    <AlertCircle className="size-4 shrink-0 dark:text-red-400 text-red-600" />
+                    <span className="leading-relaxed">{error}</span>
+                  </div>
+                )}
 
-          {/* Follow-up Input */}
-          <div className="border-t border-gold-soft/10 p-4 space-y-3 bg-bg-surface-soft/50 backdrop-blur-md">
-            <Textarea
-              placeholder="Ask about the architecture or request a change…"
-              value={followUp}
-              onChange={e => setFollowUp(e.target.value)}
-              className="min-h-20 resize-none bg-bg-deep border border-border/40 focus:border-gold-soft/45 focus:ring-1 focus:ring-gold-soft/45 transition-all duration-300 text-text-primary"
-            />
-            <Button
-              onClick={handleFollowUp}
-              disabled={!followUp.trim() || isAnalyzing}
-              className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 shadow-sm hover:shadow"
-            >
-              <ArrowRight className="w-4 h-4" />
-              Send
-            </Button>
-          </div>
+                {draftVersion && (
+                  <div className="border border-primary/30 dark:bg-primary/10 bg-primary/5 p-4 rounded-xl mb-6 shadow-lg backdrop-blur-sm">
+                    <p className="text-sm font-bold dark:text-slate-100 text-slate-900 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      Draft Update Ready
+                    </p>
+                    <p className="mt-1.5 text-xs dark:text-slate-300 text-slate-600">
+                      Version {draftVersion.version} is ready for review.
+                    </p>
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs shadow-md"
+                        onClick={handleAcceptDraft}
+                        disabled={isAnalyzing}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 dark:border-white/10 border-black/10 dark:hover:bg-white/5 hover:bg-black/5 text-xs"
+                        onClick={handleDiscardDraft}
+                        disabled={isAnalyzing}
+                      >
+                        Discard
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Messages */}
+                <div className="space-y-6 pb-4">
+                  {messages.map((msg, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4 }}
+                      className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1.5 px-1">
+                         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                           {msg.role === "user" ? "You" : "Architect"}
+                         </span>
+                      </div>
+                      <div
+                        className={`relative max-w-[90%] p-4 text-[13px] leading-relaxed shadow-xl ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-sm"
+                            : "dark:bg-white/5 bg-black/5 dark:text-slate-200 text-slate-800 dark:border-white/10 border-black/5 rounded-2xl rounded-tl-sm backdrop-blur-md border"
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                  {isAnalyzing && (
+                    <div className="flex justify-start">
+                      <div className="dark:bg-white/5 bg-black/5 dark:border-white/10 border-black/5 rounded-2xl rounded-tl-sm p-4 backdrop-blur-md border">
+                        <AgentActivity isAnalyzing={isAnalyzing} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Follow-up Input */}
+              <div className="p-4 bg-background/60 backdrop-blur-xl border-t border-border/40">
+                <div className="relative group">
+                  <Textarea
+                    placeholder="Ask about the architecture..."
+                    value={followUp}
+                    onChange={e => setFollowUp(e.target.value)}
+                    className="min-h-[60px] pr-12 resize-none rounded-xl dark:bg-black/40 bg-white/80 dark:border-white/10 border-black/10 focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all duration-300 dark:text-slate-200 text-slate-900 dark:placeholder:text-slate-500 placeholder-slate-400 workspace-scrollbar text-sm py-3.5 shadow-inner"
+                  />
+                  <Button
+                    size="icon"
+                    onClick={handleFollowUp}
+                    disabled={!followUp.trim() || isAnalyzing}
+                    className="absolute right-2 bottom-2 w-8 h-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md disabled:opacity-50"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right Panel: Architecture Artifact */}

@@ -37,15 +37,19 @@ class GenerationResponse(BaseModel):
     requires_human_review: bool = False
     target: str = "terraform"
     pattern_id: str | None = None
+    draft_pattern_guess: str | None = None
     deployment_strategy: str | None = None
     supported_resources: list[str] = Field(default_factory=list)
     unsupported_resources: list[str] = Field(default_factory=list)
     files: list[FileArtifact] = Field(default_factory=list)
     derived_resources: list[DerivedResource] = Field(default_factory=list)
     repairs: list[RepairRecord] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    required_inputs: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     runtime_risks: list[str] = Field(default_factory=list)
     validation_assertions: list[str] = Field(default_factory=list)
+    validation: dict[str, Any] | None = None
     safety_findings: list[dict[str, Any]] = Field(default_factory=list)
     reasoning: dict[str, Any] | None = None
     review: dict[str, Any] | None = None

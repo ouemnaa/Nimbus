@@ -50,7 +50,75 @@ class ProjectService:
 
     async def list_projects(self) -> list[ProjectResponse]:
         documents = await self.projects.list_all()
-        return [ProjectResponse.from_document(item) for item in documents]
+        if not documents:
+            return []
+
+        version_tasks = [
+            self.versions.get_by_id(item["currentVersionId"])
+            if item.get("currentVersionId") is not None
+            else None
+            for item in documents
+        ]
+        terraform_tasks = [
+            self.terraform_generations.latest_for_project(item["_id"])
+            if self.terraform_generations is not None
+            else None
+            for item in documents
+        ]
+
+        resolved_versions = await asyncio.gather(
+            *[
+                task
+                for task in version_tasks
+                if task is not None
+            ]
+        ) if any(task is not None for task in version_tasks) else []
+        resolved_terraform = await asyncio.gather(
+            *[
+                task
+                for task in terraform_tasks
+                if task is not None
+            ]
+        ) if any(task is not None for task in terraform_tasks) else []
+
+        version_iter = iter(resolved_versions)
+        terraform_iter = iter(resolved_terraform)
+        responses: list[ProjectResponse] = []
+
+        for item, version_task, terraform_task in zip(
+            documents, version_tasks, terraform_tasks, strict=False
+        ):
+            version_document = next(version_iter) if version_task is not None else None
+            terraform_document = (
+                next(terraform_iter) if terraform_task is not None else None
+            )
+            response = ProjectResponse.from_document(item)
+            architecture = (
+                version_document.get("architecture", {})
+                if isinstance(version_document, dict)
+                else {}
+            )
+            resources = architecture.get("resources", [])
+            response.current_version = (
+                version_document.get("version")
+                if isinstance(version_document, dict)
+                else None
+            )
+            response.resource_count = len(resources) if isinstance(resources, list) else 0
+            response.has_terraform_generation = terraform_document is not None
+            response.latest_terraform_status = (
+                terraform_document.get("status")
+                if isinstance(terraform_document, dict)
+                else None
+            )
+            response.latest_terraform_updated_at = (
+                terraform_document.get("updatedAt")
+                if isinstance(terraform_document, dict)
+                else None
+            )
+            responses.append(response)
+
+        return responses
 
     async def get_workspace(self, project_id: ObjectId) -> ProjectWorkspaceResponse:
         project = await self.projects.get_by_id(project_id)

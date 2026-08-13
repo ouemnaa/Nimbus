@@ -1,16 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import AppShell from "@/components/layout/AppShell";
 import PromptSuggestion from "@/components/prompt/PromptSuggestion";
 import RecentProjectItem from "@/components/project/RecentProjectItem";
 import { promptSuggestions } from "@/data/promptSuggestions";
-import { mockProjects } from "@/data/mockArchitecture";
 import { architectureService as demoArchitectureService } from "@/services/mockArchitectureService";
 import {
   analyzeArchitecture,
+  listProjects,
   NIMBUS_BACKEND_URL,
 } from "@/services/architectureService";
-import { AnalyzeArchitectureResponse, RequirementContext } from "@/types/architecture";
+import {
+  AnalyzeArchitectureResponse,
+  BackendProject,
+  RequirementContext,
+} from "@/types/architecture";
 import { BoltStyleChat } from "@/components/ui/bolt-style-chat";
 import AgentActivity from "@/components/agent/AgentActivity";
 import { Button } from "@/components/ui/button";
@@ -25,6 +29,8 @@ export default function HomePage() {
     requirement: string;
     context: RequirementContext;
   } | null>(null);
+  const [recentProjects, setRecentProjects] = useState<BackendProject[]>([]);
+  const [recentProjectsError, setRecentProjectsError] = useState<string | null>(null);
 
   const saveAndOpenWorkspace = (
     response: AnalyzeArchitectureResponse & { projectId?: string },
@@ -98,6 +104,30 @@ export default function HomePage() {
       setIsAnalyzing(false);
     }
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    listProjects()
+      .then((projects) => {
+        if (isMounted) {
+          setRecentProjects(projects.slice(0, 2));
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setRecentProjectsError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load recent persisted projects."
+          );
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <AppShell>
@@ -194,23 +224,32 @@ export default function HomePage() {
                 <h2 className="mb-6 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
                   Recent Architectures
                 </h2>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {mockProjects.slice(0, 2).map((project, idx) => (
-                    <motion.div
-                      key={project.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.6, delay: 0.5 + idx * 0.1 }}
-                    >
-                      <RecentProjectItem
-                        id={project.id}
-                        title={project.title}
-                        status={project.status}
-                        updatedAt={project.updatedAt}
-                      />
-                    </motion.div>
-                  ))}
-                </div>
+                {recentProjects.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {recentProjects.map((project, idx) => (
+                      <motion.div
+                        key={project.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.6, delay: 0.5 + idx * 0.1 }}
+                      >
+                        <RecentProjectItem
+                          id={project.id}
+                          title={project.title}
+                          status={project.status}
+                          updatedAt={new Date(project.updatedAt)}
+                          hasTerraformGeneration={project.hasTerraformGeneration}
+                          latestTerraformStatus={project.latestTerraformStatus}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-border/50 bg-card/70 p-5 text-sm text-text-muted backdrop-blur-md">
+                    {recentProjectsError ||
+                      "Your recent persisted architectures will appear here once projects exist in the database."}
+                  </div>
+                )}
               </motion.div>
             </div>
           </div>

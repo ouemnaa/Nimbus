@@ -16,6 +16,7 @@ from app.fallback.llm_draft_generator import LLMDraftTerraformGenerator
 
 def _settings(draft_enabled: bool = False, provider: str = "none") -> Settings:
     return Settings(
+        app_environment="production",
         llm_provider=provider,
         terraform_llm_draft_fallback_enabled=draft_enabled,
         gemini_api_key="fake-key" if provider != "none" else None,
@@ -39,11 +40,20 @@ def _unsupported_arch() -> CanonicalArchitecture:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Draft Fallback is disabled by default
+# Test 1: Draft Fallback is enabled by default in development
 # ---------------------------------------------------------------------------
 
-def test_draft_fallback_disabled_by_default(tmp_path) -> None:
+def test_draft_fallback_enabled_by_default_in_development(tmp_path) -> None:
     settings = Settings(generated_artifacts_dir=str(tmp_path), llm_provider="none")
+    assert settings.terraform_llm_draft_fallback_enabled is True
+
+
+def test_draft_fallback_disabled_by_default_in_production(tmp_path) -> None:
+    settings = Settings(
+        generated_artifacts_dir=str(tmp_path),
+        llm_provider="none",
+        app_environment="production",
+    )
     assert settings.terraform_llm_draft_fallback_enabled is False
 
 
@@ -113,6 +123,8 @@ def test_unsupported_pattern_returns_draft_when_enabled_and_llm_available(tmp_pa
         assert len(res.files) == 1
         assert res.files[0].path == "compute.tf"
         assert "aws_eks_cluster" in res.files[0].content
+        assert res.validation is not None
+        assert res.review is not None
     finally:
         gs.create_provider = orig_create
 
@@ -177,11 +189,38 @@ def test_draft_with_secrets_fails_safety_check(tmp_path) -> None:
 
     try:
         res = svc.generate(_unsupported_arch())
-        assert res.generation_status == "NEEDS_REVIEW"
+        assert res.generation_status == "FAILED"
         assert res.trusted is False
         assert res.requires_human_review is True
+        assert len(res.files) == 0
         # Safety findings should list HARDCODED_AWS_KEY
         findings = [f["code"] for f in res.safety_findings]
         assert "HARDCODED_AWS_KEY" in findings
     finally:
         gs.create_provider = orig_create
+
+
+def test_draft_pattern_guess_for_serverless_supabase(tmp_path) -> None:
+    settings = Settings(
+        generated_artifacts_dir=str(tmp_path),
+        llm_provider="none",
+        terraform_llm_draft_fallback_enabled=False,
+        app_environment="production",
+    )
+    svc = _generator(settings)
+    arch = CanonicalArchitecture.model_validate(
+        {
+            "architecture_id": "serverless-app",
+            "cloud": {"provider": "aws", "region": "us-east-1"},
+            "resources": [
+                {"id": "api", "provider_type": "aws_apigatewayv2_api", "configuration": {}},
+                {"id": "fn", "provider_type": "aws_lambda_function", "configuration": {}},
+                {"id": "db", "provider_type": "external_supabase", "configuration": {}},
+            ],
+        }
+    )
+
+    res = svc.generate(arch)
+
+    assert res.generation_status == "UNSUPPORTED"
+    assert res.draft_pattern_guess == "serverless_http_api_lambda_external_db"

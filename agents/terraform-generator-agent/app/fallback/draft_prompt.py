@@ -11,10 +11,13 @@ ALLOWED_OUTPUT_PATHS = {
     "locals.tf",
     "networking.tf",
     "security_groups.tf",
+    "lambda.tf",
+    "api_gateway.tf",
     "compute.tf",
     "database.tf",
     "storage.tf",
     "iam.tf",
+    "secrets.tf",
     "observability.tf",
     "outputs.tf",
     "terraform.tfvars.example",
@@ -40,8 +43,8 @@ STRICT OUTPUT RULES — violation will cause automatic rejection:
 
 ALLOWED OUTPUT FILE PATHS:
 versions.tf, providers.tf, variables.tf, locals.tf, networking.tf, security_groups.tf,
-compute.tf, database.tf, storage.tf, iam.tf, observability.tf, outputs.tf,
-terraform.tfvars.example, README.generated.md
+iam.tf, compute.tf, lambda.tf, api_gateway.tf, database.tf, storage.tf, secrets.tf,
+observability.tf, outputs.tf, terraform.tfvars.example, README.generated.md
 
 OUTPUT FORMAT (strict JSON):
 {

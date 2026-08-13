@@ -41,6 +41,11 @@ class ProjectResponse(APIModel):
     current_version_id: str | None
     status: ProjectStatus
     user_id: str | None
+    current_version: str | None = None
+    resource_count: int = 0
+    has_terraform_generation: bool = False
+    latest_terraform_status: str | None = None
+    latest_terraform_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -100,66 +100,72 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
   };
 
   return (
-    <Card className="p-4 bg-card border-border/40">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        <div className="flex items-center gap-2">
+    <Card className="p-6 dark:bg-black/40 bg-white/40 backdrop-blur-md dark:border-white/10 border-black/10 rounded-2xl shadow-xl relative group flex flex-col h-full border">
+      <div className="flex items-center justify-between mb-6 shrink-0 relative z-10">
+        <h3 className="text-sm font-bold dark:text-slate-100 text-slate-900 tracking-wide uppercase flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+          {title}
+        </h3>
+        <div className="flex items-center gap-1.5 dark:bg-black/40 bg-white/60 p-1.5 rounded-xl border dark:border-white/10 border-black/10 shadow-inner">
           <Button
             variant="ghost"
             size="icon"
-            className="w-8 h-8"
+            className="w-7 h-7 rounded-lg dark:hover:bg-white/10 hover:bg-black/5 dark:text-slate-300 text-slate-700"
             onClick={() => setScale(prev => Math.max(0.2, prev - 0.1))}
             disabled={scale <= 0.2}
           >
             <ZoomOut className="w-4 h-4" />
           </Button>
-          <span className="text-xs text-muted-foreground w-10 text-center">
+          <span className="text-[10px] font-mono dark:text-slate-400 text-slate-600 w-12 text-center font-bold tracking-widest">
             {Math.round(scale * 100)}%
           </span>
           <Button
             variant="ghost"
             size="icon"
-            className="w-8 h-8"
+            className="w-7 h-7 rounded-lg dark:hover:bg-white/10 hover:bg-black/5 dark:text-slate-300 text-slate-700"
             onClick={() => setScale(prev => Math.min(3, prev + 0.1))}
             disabled={scale >= 3}
           >
             <ZoomIn className="w-4 h-4" />
           </Button>
+          <div className="w-px h-4 dark:bg-white/10 bg-black/10 mx-1" />
           <Button
             variant="ghost"
             size="icon"
-            className="w-8 h-8"
+            className="w-7 h-7 rounded-lg dark:hover:bg-white/10 hover:bg-black/5 dark:text-slate-300 text-slate-700"
             onClick={handleReset}
           >
             <RotateCcw className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="w-8 h-8">
+          <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg dark:hover:bg-white/10 hover:bg-black/5 dark:text-slate-300 text-slate-700">
             <Maximize2 className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
       {error ? (
-        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-500 flex items-center justify-center min-h-[400px]">
           {error}
         </div>
       ) : (
-        <div
-          className="relative overflow-hidden bg-bg-surface rounded border border-gold-soft/12 min-h-96 cursor-grab active:cursor-grabbing select-none flex items-center justify-center"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onWheel={handleWheel}
-        >
+        <div className="relative flex-1 rounded-xl border dark:border-white/5 border-black/5 overflow-hidden dark:bg-black/20 bg-white/60 shadow-inner group-hover:border-primary/20 transition-colors">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(var(--primary),0.05)_0%,transparent_70%)] pointer-events-none" />
           <div
-            ref={containerRef}
-            className="w-full flex items-center justify-center p-4 transition-transform duration-75 ease-out"
-            style={{
-              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})`,
-              transformOrigin: "center center",
-            }}
-          />
+            className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+          >
+            <div
+              ref={containerRef}
+              className="w-full h-full flex items-center justify-center p-8 transition-transform duration-75 ease-out origin-center"
+              style={{
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})`,
+              }}
+            />
+          </div>
         </div>
       )}
     </Card>

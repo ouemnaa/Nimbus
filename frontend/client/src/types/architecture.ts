@@ -150,6 +150,11 @@ export interface BackendProject {
   currentVersionId: string | null;
   status: ArchitectureStatus;
   userId: string | null;
+  currentVersion: string | null;
+  resourceCount: number;
+  hasTerraformGeneration: boolean;
+  latestTerraformStatus: string | null;
+  latestTerraformUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

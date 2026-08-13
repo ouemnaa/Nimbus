@@ -3,13 +3,15 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate, formatStatus } from "@/utils/format";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, FileCode2 } from "lucide-react";
 
 interface RecentProjectItemProps {
   id: string;
   title: string;
   status: string;
   updatedAt: Date;
+  hasTerraformGeneration?: boolean;
+  latestTerraformStatus?: string | null;
 }
 
 export default function RecentProjectItem({
@@ -17,6 +19,8 @@ export default function RecentProjectItem({
   title,
   status,
   updatedAt,
+  hasTerraformGeneration,
+  latestTerraformStatus,
 }: RecentProjectItemProps) {
   const statusColor =
     status === "APPROVED"
@@ -24,6 +28,11 @@ export default function RecentProjectItem({
       : status === "READY_FOR_REVIEW"
         ? "bg-amber-500/10 text-amber-700 dark:text-gold-cloud border border-amber-500/20"
         : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20";
+  const terraformColor = hasTerraformGeneration
+    ? latestTerraformStatus === "SUCCESS"
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+      : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+    : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20";
 
   return (
     <Link href={`/workspace/${id}`}>
@@ -42,6 +51,16 @@ export default function RecentProjectItem({
               </motion.div>
             </h4>
             <p className="text-xs text-text-muted mt-1">{formatDate(updatedAt)}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge className={`${terraformColor} text-[11px] whitespace-nowrap bg-transparent shadow-none`}>
+                <span className="inline-flex items-center gap-1">
+                  <FileCode2 className="w-3 h-3" />
+                  {hasTerraformGeneration
+                    ? `Terraform ${latestTerraformStatus || "saved"}`
+                    : "No Terraform yet"}
+                </span>
+              </Badge>
+            </div>
           </div>
           <Badge className={`${statusColor} text-xs whitespace-nowrap bg-transparent shadow-none`}>
             {formatStatus(status)}

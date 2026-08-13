@@ -2,6 +2,7 @@ from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     validation_enable_terraform_init: bool = True
     validation_enable_terraform_plan: bool = False
     validation_timeout_seconds: int = 120
+    app_environment: Literal["development", "production"] = "development"
 
     # LLM provider — "auto" tries Gemini → Groq → OpenRouter, falls back to none
     llm_provider: Literal["gemini", "groq", "openrouter", "none", "auto"] = "none"
@@ -49,7 +51,13 @@ class Settings(BaseSettings):
     # Feature flags
     terraform_reasoning_enabled: bool = True
     terraform_reviewer_enabled: bool = True
-    terraform_llm_draft_fallback_enabled: bool = False
+    terraform_llm_draft_fallback_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def apply_environment_defaults(self) -> "Settings":
+        if self.terraform_llm_draft_fallback_enabled is None:
+            self.terraform_llm_draft_fallback_enabled = self.app_environment == "development"
+        return self
 
 
 @lru_cache
