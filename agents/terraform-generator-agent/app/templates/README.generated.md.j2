@@ -4,7 +4,7 @@ This Terraform was generated deterministically by Nimbus Terraform Generator Age
 
 ## Architecture summary
 
-The target is a low-cost development architecture using a VPC, multi-AZ public and private subnets, an Application Load Balancer, ECS Fargate, PostgreSQL RDS, Secrets Manager, IAM, and CloudWatch Logs. The generated ECS tasks are private and the RDS instance is not publicly accessible.
+The target is a low-cost development architecture using a VPC, multi-AZ public and private subnets, an Application Load Balancer, ECS Fargate, PostgreSQL RDS, Secrets Manager, IAM, and CloudWatch Logs. {% if assign_public_ip %}The ECS tasks run in public subnets with public IPs for low-cost outbound internet access, while inbound traffic is restricted to the ALB security group.{% else %}The ECS tasks run in private subnets and the RDS instance is not publicly accessible.{% endif %}
 
 ## Run validation
 
@@ -42,5 +42,5 @@ Copy `terraform.tfvars.example` to a local `terraform.tfvars`, replace `containe
 
 - Do not add AWS credentials to provider blocks or generated files.
 - Do not commit `terraform.tfvars`, state files, plans, or `.terraform/`.
-- HTTPS is not enabled until an ACM certificate workflow is implemented and configured.
+- HTTPS is enabled only when `acm_certificate_arn` is set.
 - Review cost, security, and deletion settings before any real deployment.

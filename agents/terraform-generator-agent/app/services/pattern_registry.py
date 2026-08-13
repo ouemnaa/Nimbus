@@ -302,8 +302,14 @@ def _subnets(architecture: NormalizedArchitecture, public: bool) -> list[dict[st
         cidr = resource_cfg(resource, "cidr_block", "cidr", "CidrBlock")
         if not cidr:
             cidr = f"10.0.{index + (1 if public else 10)}.0/24"
-        az = resource_cfg(resource, "availability_zone", "az", "AvailabilityZone", default=f"{architecture.region}{chr(97 + index)}")
-        result.append({"id": resource.id, "label": resource.label, "cidr": cidr, "az": az})
+        result.append(
+            {
+                "id": resource.id,
+                "label": resource.label,
+                "cidr": cidr,
+                "az_index": index % 2,
+            }
+        )
     return result
 
 
@@ -343,7 +349,6 @@ def _ecs_context(architecture: NormalizedArchitecture, options: GenerateOptions,
     ecs_sg = next((item for item in security_groups if "ecs" in f"{item.id} {item.name}".lower()), security_groups[1] if len(security_groups) > 1 else alb_sg)
     rds_sg = next((item for item in security_groups if "rds" in f"{item.id} {item.name}".lower()), security_groups[2] if len(security_groups) > 2 else ecs_sg)
     target_group = architecture.first("aws_lb_target_group")
-    listener = architecture.first("aws_lb_listener")
     execution_role = architecture.first("aws_iam_role")
     log_group = architecture.first("aws_cloudwatch_log_group")
     secret = architecture.first("aws_secretsmanager_secret")
@@ -392,11 +397,11 @@ def _ecs_context(architecture: NormalizedArchitecture, options: GenerateOptions,
         "ecs_sg_label": ecs_sg.label if ecs_sg else "ecs_sg",
         "rds_sg_label": rds_sg.label if rds_sg else "rds_sg",
         "target_group_label": target_group.label if target_group else "target_group",
-        "listener_label": listener.label if listener else "http",
+        "listener_label": "application_load_balancer_listener",
         "ecs_cluster_label": (architecture.first("aws_ecs_cluster").label if architecture.first("aws_ecs_cluster") else "ecs_cluster"),
         "ecs_service_label": ecs.label if ecs else "ecs_service",
         "task_definition_label": (architecture.first("aws_ecs_task_definition").label if architecture.first("aws_ecs_task_definition") else "task_definition"),
-        "ecs_execution_role_label": execution_role.label if execution_role else "ecs_execution_role",
+        "ecs_execution_role_label": "ecs_task_execution_role",
         "log_group_label": log_group.label if log_group else "ecs_logs",
         "log_retention_days": int(resource_cfg(log_group, "retention_in_days", "retention", default=7) if log_group else 7),
         "health_check_path": str(resource_cfg(target_group, "health_check_path", "path", default="/") if target_group else "/"),

@@ -154,3 +154,18 @@ def test_generated_terraform_validates_when_cli_available(tmp_path) -> None:
     result = validator.validate(response.files)
 
     assert result.validation_status == "PASSED"
+
+
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="Terraform CLI is not installed")
+def test_generated_ecs_terraform_validates_when_cli_available(tmp_path) -> None:
+    response = service(tmp_path).generate(ecs_architecture())
+    validator = TerraformValidatorService(
+        Settings(
+            generated_artifacts_dir=str(tmp_path / "generated"),
+            validation_enable_terraform_init=False,
+        )
+    )
+
+    result = validator.validate(response.files)
+
+    assert result.validation_status == "PASSED"

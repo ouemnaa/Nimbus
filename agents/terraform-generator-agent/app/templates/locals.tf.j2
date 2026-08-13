@@ -1,5 +1,16 @@
 locals {
-  name_prefix = lower(replace("${var.project_name}-${var.environment}", "_", "-"))
+  project_slug_raw     = regexreplace(lower(var.project_name), "[^a-z0-9-]", "-")
+  project_slug         = trim(regexreplace(local.project_slug_raw, "-+", "-"), "-")
+  environment_slug_raw = regexreplace(lower(var.environment), "[^a-z0-9-]", "-")
+  environment_slug     = trim(regexreplace(local.environment_slug_raw, "-+", "-"), "-")
+  short_project_slug   = substr(local.project_slug != "" ? local.project_slug : "nimbus", 0, 16)
+  short_environment_slug = substr(local.environment_slug != "" ? local.environment_slug : "dev", 0, 7)
+  name_prefix          = substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)
+  is_development       = contains(["dev", "development"], lower(var.environment))
+  alb_name             = substr("${local.name_prefix}-alb", 0, 32)
+  target_group_name    = substr("${local.name_prefix}-tg", 0, 32)
+  db_subnet_group_name = substr("${local.name_prefix}-db-subnet-group", 0, 255)
+  db_identifier        = substr("${local.name_prefix}-postgres", 0, 63)
 
   common_tags = {
     Project     = var.project_name

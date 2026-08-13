@@ -60,5 +60,9 @@ resource "aws_ecs_service" "{{ ecs_service_label }}" {
   }
 {% endif %}
 
-  depends_on = [aws_iam_role_policy_attachment.{{ ecs_execution_role_label }}_managed]
+  depends_on = [
+    aws_iam_role_policy_attachment.{{ ecs_execution_role_label }}_managed,
+    aws_iam_role_policy.{{ ecs_execution_role_label }}_secrets,
+    aws_lb_listener.{{ listener_label }}
+  ]
 }

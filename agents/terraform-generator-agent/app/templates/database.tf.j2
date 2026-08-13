@@ -1,10 +1,10 @@
 resource "aws_db_subnet_group" "{{ db_subnet_group_label }}" {
-  name       = "${local.name_prefix}-db-subnet-group"
+  name       = local.db_subnet_group_name
   subnet_ids = [{% for subnet in private_subnets %}aws_subnet.{{ subnet.label }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
 }
 
 resource "aws_db_instance" "{{ db_label }}" {
-  identifier             = "${local.name_prefix}-postgres"
+  identifier             = local.db_identifier
   engine                 = "postgres"
   engine_version         = "{{ db_engine_version }}"
   instance_class         = var.db_instance_class
@@ -18,7 +18,7 @@ resource "aws_db_instance" "{{ db_label }}" {
   vpc_security_group_ids = [aws_security_group.{{ rds_sg_label }}.id]
   publicly_accessible    = false
   multi_az               = var.db_multi_az
-  skip_final_snapshot    = var.environment == "dev"
-  deletion_protection    = var.environment != "dev"
-  apply_immediately      = var.environment == "dev"
+  skip_final_snapshot    = local.is_development
+  deletion_protection    = !local.is_development
+  apply_immediately      = local.is_development
 }

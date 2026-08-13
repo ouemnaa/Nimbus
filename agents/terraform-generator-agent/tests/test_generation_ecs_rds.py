@@ -58,7 +58,8 @@ def test_generation_repairs_single_subnets_and_missing_container_values(tmp_path
     ecs = file_map(response)["ecs.tf"]
 
     assert networking.count('resource "aws_subnet"') == 4
-    assert "us-east-1b" in networking
+    assert 'data "aws_availability_zones" "available"' in networking
+    assert "data.aws_availability_zones.available.names[1]" in networking
     assert response.repairs
     assert any(repair.action == "add_public_subnet" for repair in response.repairs)
     assert any(repair.action == "add_private_subnet" for repair in response.repairs)
@@ -112,6 +113,115 @@ def test_ecs_private_no_nat_still_generates_files_with_review_warnings(tmp_path)
     assert "ecs.tf" in files
     assert "assign_public_ip = true" in files["ecs.tf"]
     assert "aws_nat_gateway" not in files["networking.tf"]
-    assert any("Generated Terraform uses a deterministic fallback" in warning for warning in response.warnings)
+    assert any(
+        "Detected private ECS without NAT/VPC endpoints and repaired by using public ECS subnets with assign_public_ip=true."
+        in warning for warning in response.warnings
+    )
+    assert not any(
+        "CRITICAL: Private ECS subnets without NAT Gateway or VPC endpoints" in warning
+        for warning in response.warnings
+    )
     assert any("Add a NAT Gateway in a public subnet" in step for step in response.next_steps)
+
+
+def test_readme_matches_public_ecs_no_nat_strategy(tmp_path):
+    private_no_nat_fixture = CanonicalArchitecture.model_validate(
+        json.loads((Path(__file__).parent / "fixtures" / "ecs_private_no_nat_architecture.json").read_text())
+    )
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(private_no_nat_fixture, GenerateOptions())
+    readme = file_map(response)["README.generated.md"]
+
+    assert (
+        "The ECS tasks run in public subnets with public IPs for low-cost outbound internet access, while inbound traffic is restricted to the ALB security group."
+        in readme
+    )
+
+
+def test_ecs_name_prefix_keeps_alb_name_within_aws_limit(tmp_path):
+    fixture = CanonicalArchitecture.model_validate(
+        json.loads((Path(__file__).parent / "fixtures" / "ecs_public_no_nat_architecture.json").read_text())
+    )
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(
+        fixture,
+        GenerateOptions(project_name="Nimbus Super Long Platform Name For Deterministic Terraform"),
+    )
+    locals_tf = file_map(response)["locals.tf"]
+    load_balancing_tf = file_map(response)["load_balancing.tf"]
+
+    assert 'name_prefix          = substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)' in locals_tf
+    assert 'alb_name             = substr("${local.name_prefix}-alb", 0, 32)' in locals_tf
+    assert "name               = local.alb_name" in load_balancing_tf
+
+
+def test_environment_development_uses_local_is_development(tmp_path):
+    fixture = CanonicalArchitecture.model_validate(
+        json.loads((Path(__file__).parent / "fixtures" / "ecs_public_no_nat_architecture.json").read_text())
+    )
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(
+        fixture,
+        GenerateOptions(environment="development"),
+    )
+    locals_tf = file_map(response)["locals.tf"]
+    database_tf = file_map(response)["database.tf"]
+
+    assert 'is_development       = contains(["dev", "development"], lower(var.environment))' in locals_tf
+    assert "skip_final_snapshot    = local.is_development" in database_tf
+    assert "deletion_protection    = !local.is_development" in database_tf
+    assert "apply_immediately      = local.is_development" in database_tf
+
+
+def test_random_password_uses_rds_safe_special_characters(tmp_path):
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(load_fixture(), GenerateOptions())
+    secrets_tf = file_map(response)["secrets.tf"]
+
+    assert 'override_special = "!#$%&*()-_=+[]{}<>:?"' in secrets_tf
+
+
+def test_networking_uses_availability_zones_data_source(tmp_path):
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(load_fixture(), GenerateOptions())
+    networking_tf = file_map(response)["networking.tf"]
+
+    assert 'data "aws_availability_zones" "available"' in networking_tf
+    assert "data.aws_availability_zones.available.names[0]" in networking_tf
+    assert "data.aws_availability_zones.available.names[1]" in networking_tf
+
+
+def test_conditional_https_listener_uses_acm_certificate_arn(tmp_path):
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(load_fixture(), GenerateOptions())
+    load_balancing_tf = file_map(response)["load_balancing.tf"]
+    variables_tf = file_map(response)["variables.tf"]
+
+    assert 'variable "acm_certificate_arn"' in variables_tf
+    assert 'count             = var.acm_certificate_arn != null ? 1 : 0' in load_balancing_tf
+    assert 'certificate_arn   = var.acm_certificate_arn' in load_balancing_tf
+
+
+def test_ecs_service_depends_on_listener_and_secret_policy(tmp_path):
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(load_fixture(), GenerateOptions())
+    ecs_tf = file_map(response)["ecs.tf"]
+
+    assert "aws_iam_role_policy_attachment.ecs_task_execution_role_managed" in ecs_tf
+    assert "aws_iam_role_policy.ecs_task_execution_role_secrets" in ecs_tf
+    assert "aws_lb_listener.application_load_balancer_listener" in ecs_tf
 

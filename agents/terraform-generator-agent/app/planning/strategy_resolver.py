@@ -54,9 +54,13 @@ def _resolve_ecs_strategy(
             public_subnets = private_subnets
 
         if public_subnets:
-            fallback_warnings = list(reasoning.warnings)
+            fallback_warnings = [
+                warning
+                for warning in reasoning.warnings
+                if "Private ECS subnets without NAT Gateway or VPC endpoints" not in warning
+            ]
             fallback_warnings.append(
-                "Generated Terraform uses a deterministic fallback: ECS tasks were moved to public subnets with assign_public_ip=true so the stack remains renderable without NAT or VPC endpoints."
+                "Detected private ECS without NAT/VPC endpoints and repaired by using public ECS subnets with assign_public_ip=true."
             )
             return {
                 "generation_mode": "DETERMINISTIC_SUPPORTED",
