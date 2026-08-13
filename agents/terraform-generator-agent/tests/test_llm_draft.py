@@ -9,9 +9,11 @@ from app.planning.terraform_resource_plan_coverage_validator import CoverageFind
 from app.planning.terraform_resource_plan_schema import TerraformResourcePlan
 from app.planning.capability_extractor import InfrastructureCapabilityExtractor
 from app.rendering.generic_hcl_renderer import GenericHCLRenderer
-from app.schemas.architecture import CanonicalArchitecture
+from app.schemas.architecture import CanonicalArchitecture, GenerateOptions
 from app.services.architecture_normalizer import normalize_architecture
+from app.services.architecture_normalizer import normalize_provider_type
 from app.services.generator_service import TerraformGeneratorService
+from app.schemas.validation import ValidationResponse
 
 
 def _generator(settings: Settings) -> TerraformGeneratorService:
@@ -705,3 +707,217 @@ def test_shell_only_render_fails_loudly(tmp_path) -> None:
     finally:
         gs.create_provider = orig_create
         svc.generic_renderer.render = orig_render
+
+
+def _event_pipeline_arch() -> CanonicalArchitecture:
+    return CanonicalArchitecture.model_validate(
+        {
+            "architecture_id": "generic-event-pipeline",
+            "cloud": {"provider": "aws", "region": "us-east-1"},
+            "resources": [
+                {
+                    "id": "uploads",
+                    "name": "Source Uploads",
+                    "provider_type": "AWS::S3::Bucket",
+                    "configuration": {
+                        "cors": {"allowed_methods": ["PUT"], "allowed_origins": ["https://example.test"]},
+                        "lifecycle": {"expiration": {"days": 30}},
+                    },
+                },
+                {"id": "jobs", "name": "Upload Jobs", "provider_type": "AWS::SQS::Queue", "configuration": {}},
+                {
+                    "id": "worker",
+                    "name": "Job Worker",
+                    "provider_type": "AWS::Lambda::Function",
+                    "configuration": {"runtime": "python3.12", "environment": {"variables": {"QUEUE_URL": "jobs"}}},
+                },
+            ],
+            "relationships": [
+                {"id": "upload-events", "source_id": "uploads", "target_id": "jobs", "label": "ROUTES_TRAFFIC_TO"},
+                {"id": "queue-consumer", "source_id": "jobs", "target_id": "worker", "label": "TRIGGERS"},
+            ],
+        }
+    )
+
+
+def test_provider_aliases_preserve_selected_services() -> None:
+    assert normalize_provider_type("AWS::Lambda::Function") == "aws_lambda_function"
+    assert normalize_provider_type("AWS::S3::Bucket") == "aws_s3_bucket"
+    assert normalize_provider_type("AWS::MediaConvert::Queue") == "aws_media_convert_queue"
+    assert normalize_provider_type("aws_mediaconvert_queue") == "aws_media_convert_queue"
+
+
+def test_generic_event_relationships_render_wiring_and_nested_s3_blocks(tmp_path) -> None:
+    svc = _generator(_settings(tmp_path, enabled=True))
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(return_value=json.dumps({"draft_pattern_name": "generic-event-pipeline"}))
+
+    import app.services.generator_service as gs
+    original = gs.create_provider
+    gs.create_provider = lambda settings: mock_llm
+    try:
+        result = svc.generate(
+            _event_pipeline_arch(),
+            GenerateOptions(enable_reasoning=False, enable_reviewer=False),
+        )
+        files = {item.path: item.content for item in result.files}
+        assert 'resource "aws_s3_bucket_notification" "source_uploads_notification"' in files["storage.tf"]
+        assert 'resource "aws_sqs_queue_policy" "allow_s3_source_uploads_upload_jobs"' in files["iam.tf"]
+        assert 'resource "aws_lambda_event_source_mapping" "upload_jobs_job_worker"' in files["lambda.tf"]
+        assert "sqs:ReceiveMessage" in files["iam.tf"]
+        assert "cors_rule {" in files["storage.tf"]
+        assert "rule {" in files["storage.tf"]
+        assert "expiration {" in files["storage.tf"]
+        assert "attribute = \"[" not in "\n".join(files.values())
+    finally:
+        gs.create_provider = original
+
+
+def test_hallucinated_external_dependency_is_a_blocking_coverage_finding() -> None:
+    architecture = normalize_architecture(
+        CanonicalArchitecture.model_validate(
+            {
+                "architecture_id": "analytics",
+                "resources": [{"id": "worker", "provider_type": "aws_lambda_function", "configuration": {}}],
+            }
+        ),
+        "us-east-1",
+    )
+    plan = TerraformResourcePlan.model_validate(
+        {
+            "draft_pattern_name": "generic",
+            "cloud_provider": "AWS",
+            "variables": [{"name": "supabase_url", "type": "string", "required": True}],
+            "resources": [{
+                "terraform_type": "aws_lambda_function",
+                "name": "worker",
+                "file": "lambda.tf",
+                "architecture_resource_id": "worker",
+                "body": {},
+            }],
+            "architecture_resource_mappings": [{
+                "architecture_resource_id": "worker",
+                "provider_type": "aws_lambda_function",
+                "mapping_status": "RENDERED",
+                "terraform_addresses": ["aws_lambda_function.worker"],
+            }],
+        }
+    )
+    findings = TerraformResourcePlanCoverageValidator().validate(architecture, plan)
+    assert any(item.code == "planner_hallucinated_external_dependency" for item in findings)
+
+
+def test_generic_debug_artifacts_are_persisted(tmp_path) -> None:
+    svc = _generator(_settings(tmp_path, enabled=True))
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(return_value=json.dumps({"draft_pattern_name": "generic-event-pipeline"}))
+
+    import app.services.generator_service as gs
+    original = gs.create_provider
+    gs.create_provider = lambda settings: mock_llm
+    try:
+        result = svc.generate(_event_pipeline_arch())
+        debug_dir = tmp_path / "architectures" / "generic-event-pipeline" / "versions" / "1-0-0" / ".nimbus-debug"
+        assert result.metadata.local_output_dir
+        for name in (
+            "canonical_architecture.json",
+            "infrastructure_capability_plan.json",
+            "provider_normalization_report.json",
+            "terraform_resource_plan_raw_response.txt",
+            "terraform_resource_plan_parsed.json",
+            "relationship_coverage_report.json",
+            "iam_synthesis_report.json",
+            "networking_synthesis_report.json",
+            "rendered_file_manifest.json",
+            "terraform_validate_result.json",
+        ):
+            assert (debug_dir / name).exists(), name
+    finally:
+        gs.create_provider = original
+
+
+def test_failed_terraform_validation_returns_failed_validation(tmp_path) -> None:
+    svc = _generator(_settings(tmp_path, enabled=True))
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(return_value=json.dumps({"draft_pattern_name": "generic-event-pipeline"}))
+    svc._validate_generated_artifacts = MagicMock(
+        return_value=ValidationResponse(validation_status="FAILED", errors=["terraform_validate: invalid provider argument"])
+    )
+
+    import app.services.generator_service as gs
+    original = gs.create_provider
+    gs.create_provider = lambda settings: mock_llm
+    try:
+        result = svc.generate(_event_pipeline_arch())
+        assert result.generation_status == "FAILED_VALIDATION"
+        assert result.generation_mode == "LLM_PLANNED_GENERIC_RENDER"
+        assert result.error == "Terraform validation failed after one repair attempt."
+        assert result.validation["validation_status"] == "FAILED"
+    finally:
+        gs.create_provider = original
+
+
+def test_schema_invalid_planner_response_is_repaired_and_debugged(tmp_path) -> None:
+    svc = _generator(_settings(tmp_path, enabled=True))
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(
+        side_effect=[
+            '{"draft_pattern_name":"broken","resources":[{"terraform_type":"aws_s3_bucket",',
+            json.dumps({"draft_pattern_name": "generic-event-pipeline"}),
+            json.dumps({"draft_pattern_name": "generic-event-pipeline"}),
+        ]
+    )
+
+    import app.services.generator_service as gs
+    original = gs.create_provider
+    gs.create_provider = lambda settings: mock_llm
+    try:
+        result = svc.generate(
+            _event_pipeline_arch(),
+            GenerateOptions(enable_reasoning=False, enable_reviewer=False),
+        )
+        assert result.generation_status == "NEEDS_REVIEW"
+        assert mock_llm.complete.await_count >= 2
+        debug_dir = tmp_path / "architectures" / "generic-event-pipeline" / "versions" / "1-0-0" / ".nimbus-debug"
+        errors = json.loads((debug_dir / "terraform_resource_plan_validation_errors.json").read_text())
+        assert errors
+        assert errors[0]["attempt"] == 1
+    finally:
+        gs.create_provider = original
+
+
+def test_media_convert_alias_and_property_are_compiled_generically(tmp_path) -> None:
+    architecture = CanonicalArchitecture.model_validate(
+        {
+            "architecture_id": "media-service",
+            "resources": [
+                {
+                    "id": "transcode-queue",
+                    "name": "Transcode Queue",
+                    "provider_type": "aws_mediaconvert_queue",
+                    "configuration": {"pricing_tier": "ON_DEMAND"},
+                }
+            ],
+        }
+    )
+    svc = _generator(_settings(tmp_path, enabled=True))
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(return_value=json.dumps({"draft_pattern_name": "generic-media"}))
+
+    import app.services.generator_service as gs
+    original = gs.create_provider
+    gs.create_provider = lambda settings: mock_llm
+    try:
+        result = svc.generate(architecture)
+        compute = {item.path: item.content for item in result.files}["compute.tf"]
+        assert 'resource "aws_media_convert_queue" "transcode_queue"' in compute
+        assert 'pricing_plan = "ON_DEMAND"' in compute
+        assert "aws_mediaconvert_queue" not in compute
+        assert "pricing_tier" not in compute
+    finally:
+        gs.create_provider = original

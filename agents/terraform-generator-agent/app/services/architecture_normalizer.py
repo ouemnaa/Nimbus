@@ -27,6 +27,15 @@ PROVIDER_TYPE_MAP = {
     "AWS::IAM::Policy": "aws_iam_policy",
     "AWS::IAM::RolePolicyAttachment": "aws_iam_role_policy_attachment",
     "AWS::Logs::LogGroup": "aws_cloudwatch_log_group",
+    "AWS::Lambda::Function": "aws_lambda_function",
+    "AWS::ApiGatewayV2::Api": "aws_apigatewayv2_api",
+    "AWS::ApiGatewayV2::Stage": "aws_apigatewayv2_stage",
+    "AWS::ApiGateway::RestApi": "aws_api_gateway_rest_api",
+    "AWS::DynamoDB::Table": "aws_dynamodb_table",
+    "AWS::SQS::Queue": "aws_sqs_queue",
+    "AWS::Cognito::UserPool": "aws_cognito_user_pool",
+    "AWS::Cognito::UserPoolClient": "aws_cognito_user_pool_client",
+    "AWS::MediaConvert::Queue": "aws_media_convert_queue",
     "AWS::S3::Bucket": "aws_s3_bucket",
     "AWS::S3::BucketPolicy": "aws_s3_bucket_policy",
     "AWS::CloudFront::Distribution": "aws_cloudfront_distribution",
@@ -39,6 +48,14 @@ PROVIDER_TYPE_MAP = {
     "aws_route": "aws_route",
     "aws_route_table_association": "aws_route_table_association",
     "random_password": "random_password",
+    # Historical and conceptual aliases accepted at the compiler boundary.
+    "aws_mediaconvert_queue": "aws_media_convert_queue",
+    "serverless_compute": "aws_lambda_function",
+    "object_storage": "aws_s3_bucket",
+    "async_queue": "aws_sqs_queue",
+    "key_value_store": "aws_dynamodb_table",
+    "relational_database": "aws_db_instance",
+    "container_compute": "aws_ecs_service",
 }
 
 SUPPORTED_PROVIDER_TYPES = set(PROVIDER_TYPE_MAP.values())
@@ -80,7 +97,9 @@ class NormalizedArchitecture:
 
 
 def normalize_provider_type(value: str) -> str:
-    return PROVIDER_TYPE_MAP.get(value, value.lower() if value else "")
+    if not value:
+        return ""
+    return PROVIDER_TYPE_MAP.get(value, PROVIDER_TYPE_MAP.get(value.lower(), value.lower()))
 
 
 def cfg(config: dict[str, Any] | None, *keys: str, default: Any = None) -> Any:

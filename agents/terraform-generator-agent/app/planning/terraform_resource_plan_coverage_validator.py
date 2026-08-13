@@ -45,6 +45,10 @@ class TerraformResourcePlanCoverageValidator:
         self._validate_capabilities(capability_plan, plan, resources_by_type, findings)
         self._validate_architecture_resources(architecture, mappings, resources_by_address, findings)
         self._validate_relationships(architecture, mappings, resources_by_address, findings)
+        self._validate_hallucinated_external_dependencies(architecture, plan, findings)
+        self._validate_provider_invariants(architecture, mappings, findings)
+        self._validate_resource_quality(architecture, plan, resources_by_type, findings)
+        self._validate_networking(plan, resources_by_type, findings)
         return findings
 
     def _validate_global_shape(
@@ -258,10 +262,15 @@ class TerraformResourcePlanCoverageValidator:
                     )
                     continue
                 lambda_name = lambda_addresses[0].split(".", 1)[1]
+                protocol = str(source_resource.configuration.get("protocol_type", "HTTP")).upper()
+                route_name = (
+                    f"{lambda_name}_{_safe_label(label)}"
+                    if protocol == "WEBSOCKET" else lambda_name
+                )
                 expected_addresses = {
-                    f"aws_apigatewayv2_integration.{lambda_name}_integration": "API Gateway integration resource missing.",
-                    f"aws_apigatewayv2_route.{lambda_name}_route": "API Gateway route resource missing.",
-                    f"aws_lambda_permission.allow_api_gateway_{lambda_name}": "Lambda permission resource missing.",
+                    f"aws_apigatewayv2_integration.{route_name}_integration": "API Gateway integration resource missing.",
+                    f"aws_apigatewayv2_route.{route_name}_route": "API Gateway route resource missing.",
+                    f"aws_lambda_permission.allow_api_gateway_{route_name}": "Lambda permission resource missing.",
                 }
                 for expected_address, actual_message in expected_addresses.items():
                     if expected_address not in resources_by_address:
@@ -276,7 +285,7 @@ class TerraformResourcePlanCoverageValidator:
                                 recommendation="Render concrete relationship wiring resources for API Gateway to Lambda connections.",
                             )
                         )
-                route_resource = resources_by_address.get(f"aws_apigatewayv2_route.{lambda_name}_route")
+                route_resource = resources_by_address.get(f"aws_apigatewayv2_route.{route_name}_route")
                 if route_resource and route_key:
                     configured = route_resource.body.get("route_key")
                     value = getattr(configured, "value", None)
@@ -293,6 +302,250 @@ class TerraformResourcePlanCoverageValidator:
                             )
                         )
 
+            pair = (source_resource.provider_type, target_resource.provider_type)
+            expected_addresses: set[str] = set()
+            source_label = _safe_label(source_resource.name)
+            target_label = _safe_label(target_resource.name)
+            if pair == ("aws_s3_bucket", "aws_lambda_function"):
+                expected_addresses = {
+                    f"aws_s3_bucket_notification.{source_label}_notification",
+                    f"aws_lambda_permission.allow_s3_{source_label}_{target_label}",
+                }
+            elif pair == ("aws_s3_bucket", "aws_sqs_queue"):
+                expected_addresses = {
+                    f"aws_s3_bucket_notification.{source_label}_notification",
+                    f"aws_sqs_queue_policy.allow_s3_{source_label}_{target_label}",
+                }
+            elif pair == ("aws_apigatewayv2_api", "aws_sqs_queue"):
+                expected_addresses = {
+                    f"aws_apigatewayv2_integration.{target_label}_integration",
+                    f"aws_apigatewayv2_route.{target_label}_route",
+                    f"aws_iam_role.api_gateway_{target_label}",
+                    f"aws_iam_role_policy.api_gateway_{target_label}",
+                }
+            elif pair == ("aws_sqs_queue", "aws_lambda_function") or (
+                pair == ("aws_lambda_function", "aws_sqs_queue")
+                and any(token in label.upper() for token in ("READ", "CONSUM", "RECEIVE"))
+            ):
+                queue_label = source_label if pair[0] == "aws_sqs_queue" else target_label
+                lambda_label = target_label if pair[1] == "aws_lambda_function" else source_label
+                expected_addresses = {f"aws_lambda_event_source_mapping.{queue_label}_{lambda_label}"}
+            elif source_resource.provider_type == "aws_lambda_function" and target_resource.provider_type in {
+                "aws_s3_bucket", "aws_dynamodb_table", "aws_sqs_queue", "aws_secretsmanager_secret",
+                "aws_ecs_cluster", "aws_ecs_service", "aws_ecs_task_definition",
+                "aws_media_convert_queue",
+            }:
+                expected_addresses = {"aws_iam_role_policy"}
+            elif pair == ("aws_iam_role", "aws_s3_bucket"):
+                expected_addresses = {f"aws_iam_role_policy.{source_label}_{target_label}_access"}
+            elif pair == ("aws_lb", "aws_ecs_service"):
+                expected_addresses = {
+                    "aws_lb_target_group",
+                    "aws_lb_listener",
+                    "aws_vpc_security_group_ingress_rule",
+                }
+            elif pair == ("aws_lb", "aws_cognito_user_pool"):
+                expected_addresses = {
+                    "aws_cognito_user_pool_client",
+                    "aws_cognito_user_pool_domain",
+                    "aws_lb_listener",
+                }
+            elif (
+                source_resource.provider_type in {"aws_lambda_function", "aws_ecs_service", "aws_ecs_task_definition"}
+                and target_resource.provider_type == "aws_db_instance"
+            ):
+                expected_addresses = {
+                    "aws_db_subnet_group",
+                    "aws_vpc_security_group_ingress_rule",
+                    "aws_secretsmanager_secret",
+                }
+            elif (
+                source_resource.provider_type in {"aws_lambda_function", "aws_ecs_service", "aws_ecs_task_definition"}
+                and target_resource.provider_type == "aws_secretsmanager_secret"
+            ):
+                expected_addresses = {"aws_iam_role_policy"}
+
+            missing_addresses = sorted(
+                expected for expected in expected_addresses
+                if (
+                    expected not in resources_by_address
+                    if "." in expected
+                    else not any(address.startswith(expected + ".") for address in resources_by_address)
+                )
+            )
+            if missing_addresses:
+                findings.append(
+                    CoverageFinding(
+                        code="RELATIONSHIP_WIRING_MISSING",
+                        severity="HIGH",
+                        architecture_resource_id=source_resource.id,
+                        relationship_id=relationship_id,
+                        expected=f"Relationship should render: {', '.join(sorted(expected_addresses))}.",
+                        actual=f"Missing resources: {', '.join(missing_addresses)}.",
+                        recommendation="Expand this approved relationship into deterministic Terraform wiring and scoped IAM resources.",
+                    )
+                )
+
+    def _validate_hallucinated_external_dependencies(
+        self,
+        architecture: NormalizedArchitecture,
+        plan: TerraformResourcePlan,
+        findings: list[CoverageFinding],
+    ) -> None:
+        external_tokens = {"supabase", "firebase", "auth0", "stripe", "mongodb", "neon"}
+        architecture_text = " ".join(
+            [
+                architecture.architecture_id,
+                *(
+                    f"{resource.id} {resource.name} {resource.provider_type} {resource.configuration}"
+                    for resource in architecture.resources
+                ),
+            ]
+        ).lower()
+        generated_names = [item.name for item in plan.variables]
+        generated_names.extend(item.name for item in plan.external_dependencies)
+        for name in generated_names:
+            lowered = name.lower()
+            token = next((item for item in external_tokens if item in lowered), None)
+            if token and token not in architecture_text:
+                findings.append(
+                    CoverageFinding(
+                        code="planner_hallucinated_external_dependency",
+                        severity="HIGH",
+                        expected="External-service variables and dependencies must originate in the approved architecture graph.",
+                        actual=f"Generated name '{name}' references '{token}', which is absent from the architecture.",
+                        recommendation="Remove the invented dependency and preserve only approved services.",
+                    )
+                )
+
+    def _validate_provider_invariants(
+        self,
+        architecture: NormalizedArchitecture,
+        mappings: dict[str, object],
+        findings: list[CoverageFinding],
+    ) -> None:
+        for resource in architecture.resources:
+            if not resource.provider_type.startswith("aws_"):
+                continue
+            mapping = mappings.get(resource.id)
+            if mapping is None or mapping.mapping_status != "RENDERED":
+                continue
+            if not any(address.startswith(resource.provider_type + ".") for address in mapping.terraform_addresses):
+                findings.append(
+                    CoverageFinding(
+                        code="SELECTED_PROVIDER_SERVICE_NOT_PRESERVED",
+                        severity="HIGH",
+                        architecture_resource_id=resource.id,
+                        expected=f"At least one mapping address of type {resource.provider_type}.",
+                        actual=str(mapping.terraform_addresses),
+                        recommendation="Preserve the Solution Architect's selected service and add only implementation-derived resources.",
+                    )
+                )
+
+    def _validate_resource_quality(
+        self,
+        architecture: NormalizedArchitecture,
+        plan: TerraformResourcePlan,
+        resources_by_type: dict[str, list[str]],
+        findings: list[CoverageFinding],
+    ) -> None:
+        required_variables = {item.name for item in plan.variables if item.required}
+        missing_inputs = set(plan.missing_inputs)
+        for resource in architecture.resources:
+            if resource.provider_type == "aws_lambda_function":
+                label = _safe_label(resource.name)
+                package_variable = f"{label}_package_path"
+                if package_variable not in required_variables or package_variable not in missing_inputs:
+                    findings.append(
+                        CoverageFinding(
+                            code="RUNTIME_ARTIFACT_INPUT_MISSING",
+                            severity="HIGH",
+                            architecture_resource_id=resource.id,
+                            expected=f"Required variable and missing input '{package_variable}'.",
+                            actual="Lambda artifact path was not exposed as an explicit input.",
+                            recommendation="Require the real Lambda package path; do not claim a placeholder is deployable.",
+                        )
+                    )
+            if resource.provider_type == "aws_s3_bucket":
+                label = _safe_label(resource.name)
+                for resource_type in (
+                    "aws_s3_bucket_public_access_block",
+                    "aws_s3_bucket_server_side_encryption_configuration",
+                ):
+                    expected = f"{resource_type}.{label}"
+                    if expected not in resources_by_type.get(resource_type, []):
+                        findings.append(
+                            CoverageFinding(
+                                code="S3_SAFETY_RESOURCE_MISSING",
+                                severity="HIGH",
+                                architecture_resource_id=resource.id,
+                                expected=expected,
+                                actual="Required private/encrypted S3 companion resource is missing.",
+                                recommendation="Add deterministic S3 public-access blocking and encryption expansion.",
+                            )
+                        )
+            if resource.provider_type in {"aws_ecs_service", "aws_ecs_task_definition"}:
+                configured_image = any(
+                    key in resource.configuration
+                    for key in ("container_image", "image", "container_definitions")
+                )
+                image_inputs = {
+                    item.name for item in plan.variables
+                    if "container_image" in item.name or item.name == "image"
+                }
+                if not configured_image and not image_inputs:
+                    findings.append(
+                        CoverageFinding(
+                            code="RUNTIME_ARTIFACT_INPUT_MISSING",
+                            severity="HIGH",
+                            architecture_resource_id=resource.id,
+                            expected="A required container_image variable or an architecture-provided image.",
+                            actual="No real ECS container artifact input was found.",
+                            recommendation="Expose the container image as a required variable and missing input.",
+                        )
+                    )
+
+    def _validate_networking(
+        self,
+        plan: TerraformResourcePlan,
+        resources_by_type: dict[str, list[str]],
+        findings: list[CoverageFinding],
+    ) -> None:
+        if resources_by_type.get("aws_nat_gateway"):
+            required = {
+                "aws_eip": "NAT Gateway allocation",
+                "aws_route_table": "route table",
+                "aws_route_table_association": "route-table association",
+                "aws_route": "default route",
+            }
+            for terraform_type, purpose in required.items():
+                if not resources_by_type.get(terraform_type):
+                    findings.append(
+                        CoverageFinding(
+                            code="INCOMPLETE_PRIVATE_NETWORKING",
+                            severity="HIGH",
+                            expected=f"NAT topology includes {purpose} ({terraform_type}).",
+                            actual=f"{terraform_type} is missing.",
+                            recommendation="Complete the VPC routing topology or choose explicit VPC endpoints where appropriate.",
+                        )
+                    )
+
+        if resources_by_type.get("aws_db_instance"):
+            for terraform_type, purpose in (
+                ("aws_db_subnet_group", "private database subnet group"),
+                ("aws_security_group", "database security group"),
+            ):
+                if not resources_by_type.get(terraform_type):
+                    findings.append(
+                        CoverageFinding(
+                            code="PRIVATE_DATABASE_NETWORKING_MISSING",
+                            severity="HIGH",
+                            expected=f"RDS includes a {purpose}.",
+                            actual=f"{terraform_type} is missing.",
+                            recommendation="Synthesize private DB subnets and compute-to-database security-group rules.",
+                        )
+                    )
+
 
 def _route_key_from_label(label: str) -> str | None:
     if "/api/central/*" in label:
@@ -300,3 +553,8 @@ def _route_key_from_label(label: str) -> str | None:
     if "/api/games/*" in label:
         return "ANY /api/games/{proxy+}"
     return None
+
+
+def _safe_label(value: str) -> str:
+    text = "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+    return text or "app"

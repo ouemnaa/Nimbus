@@ -4,6 +4,9 @@ from dataclasses import asdict, is_dataclass
 import ast
 import json
 import logging
+from typing import Any
+
+from pydantic import ValidationError
 
 from app.llm.base import LLMProvider
 from app.reasoning.reasoning_schema import TerraformReasoningResult
@@ -31,6 +34,8 @@ Do not stop at architecture_resource_mappings.
 You must produce concrete Terraform resources when the capability plan is implementable.
 Every non-external architecture resource must map to concrete Terraform addresses.
 external_* resources must not be rendered as AWS resources.
+Do not replace a concrete selected provider_type with another service.
+Do not introduce an external service unless it exists in the canonical architecture.
 Required missing values must become variables.
 Secrets must be sensitive variables.
 No real secrets. No AWS credentials.
@@ -67,11 +72,24 @@ def _prompt(
             "A plan with only provider/version shell files is invalid",
         ],
         "planner_stages": [
-            "Infer infrastructure capabilities from the canonical architecture",
-            "Choose AWS services for each capability using the AWS capability catalog",
+            "Preserve every concrete selected provider_type in the canonical architecture",
+            "Infer capability labels from the preserved architecture graph",
+            "Choose AWS services only for missing, generic, or conceptual provider types",
             "Expand selected services into concrete Terraform resources and data sources",
+            "Expand every relationship into concrete wiring resources",
             "Produce architecture_resource_mappings, external_dependencies, missing_inputs, warnings, and validation_assertions",
         ],
+        "relationship_expansion_rules": {
+            "API_GATEWAY_TO_LAMBDA": ["aws_apigatewayv2_integration", "aws_apigatewayv2_route", "aws_lambda_permission", "aws_apigatewayv2_stage"],
+            "API_GATEWAY_TO_SQS": ["AWS_PROXY SQS-SendMessage integration", "route", "stage", "scoped API Gateway IAM role"],
+            "SQS_TO_LAMBDA": ["aws_lambda_event_source_mapping", "scoped SQS consumer IAM"],
+            "S3_TO_SQS": ["aws_s3_bucket_notification", "aws_sqs_queue_policy scoped to bucket ARN"],
+            "S3_TO_LAMBDA": ["aws_s3_bucket_notification", "aws_lambda_permission"],
+            "ALB_TO_ECS": ["target group", "listener", "ECS load_balancer block", "ALB-to-ECS security-group rule"],
+            "ALB_TO_COGNITO": ["user pool client", "user pool domain", "authenticate-cognito listener action", "forward action"],
+            "COMPUTE_TO_RDS": ["private DB subnet group", "compute-to-DB security-group rule", "Secrets Manager credential reference"],
+            "COMPUTE_TO_AWS_SERVICE": ["least-privilege IAM policy scoped to exact generated ARN"],
+        },
         "instructions": "Generate TerraformResourcePlan JSON only. Produce concrete Terraform resources, not .tf files.",
         "reasoning_summary": reasoning.terraform_strategy_summary,
         "unsupported_reasons": reasoning.unsupported_reasons,
@@ -125,12 +143,34 @@ def _validation_repair_prompt(
     return SYSTEM_PROMPT + "\n\n" + json.dumps(payload, indent=2)
 
 
+def _schema_repair_prompt(
+    architecture: NormalizedArchitecture,
+    capability_plan: InfrastructureCapabilityPlan,
+    invalid_response: str,
+    errors: list[dict[str, Any]],
+) -> str:
+    payload = {
+        "instructions": [
+            "Repair schema/JSON shape only and return strict TerraformResourcePlan JSON.",
+            "Preserve every selected architecture provider_type and relationship.",
+            "Do not redesign the architecture or introduce external services.",
+        ],
+        "architecture": asdict(architecture) if is_dataclass(architecture) else {},
+        "infrastructure_capability_plan": capability_plan.model_dump(mode="json"),
+        "invalid_response": invalid_response,
+        "validation_errors": errors,
+        "schema_summary": TerraformResourcePlan.model_json_schema(),
+    }
+    return SYSTEM_PROMPT + "\n\n" + json.dumps(payload, separators=(",", ":"), default=str)
+
+
 
 class LLMTerraformPlanner:
     def __init__(self) -> None:
         self.coverage_validator = TerraformResourcePlanCoverageValidator()
         self.catalog = AwsCapabilityCatalog()
         self.capability_extractor = InfrastructureCapabilityExtractor(self.catalog)
+        self.debug_artifacts: dict[str, str] = {}
 
     def create_plan(
         self,
@@ -139,9 +179,22 @@ class LLMTerraformPlanner:
         llm: LLMProvider,
     ) -> tuple[TerraformResourcePlan, list[CoverageFinding]]:
         capability_plan = self.capability_extractor.extract(architecture)
+        self.debug_artifacts = {
+            "canonical_architecture.json": _json_debug(asdict(architecture)),
+            "infrastructure_capability_plan.json": _json_debug(capability_plan.model_dump(mode="json")),
+            "provider_normalization_report.json": _json_debug({
+                "resources": [
+                    {"architecture_resource_id": item.id, "normalized_provider_type": item.provider_type}
+                    for item in architecture.resources
+                ],
+                "aliases": self.catalog.aliases,
+                "property_mappings": self.catalog.property_mappings,
+            }),
+        }
         raw = run_awaitable(llm.complete(_prompt(architecture, reasoning, capability_plan, self.catalog)))
         logger.info("llm_response_received=%s raw_response_length=%s", True, len(raw or ""))
-        plan = self._parse_and_normalize(raw, architecture, capability_plan)
+        self.debug_artifacts["terraform_resource_plan_raw_response.txt"] = raw or ""
+        plan = self._parse_with_schema_repair(raw, architecture, capability_plan, llm)
         logger.info(
             "planned_resource_count=%s planned_variable_count=%s architecture_resource_mapping_count=%s missing_inputs=%s warnings=%s",
             len(plan.resources),
@@ -151,6 +204,7 @@ class LLMTerraformPlanner:
             plan.warnings,
         )
         errors = self.coverage_validator.validate(architecture, plan)
+        self._record_plan_debug(plan, errors)
         if not errors:
             return plan, []
 
@@ -163,7 +217,9 @@ class LLMTerraformPlanner:
             len(repaired_raw or ""),
             1,
         )
-        repaired_plan = self._parse_and_normalize(repaired_raw, architecture, capability_plan)
+        repaired_plan = self._parse_with_schema_repair(
+            repaired_raw, architecture, capability_plan, llm
+        )
         logger.info(
             "planned_resource_count=%s planned_variable_count=%s architecture_resource_mapping_count=%s missing_inputs=%s warnings=%s repair_attempt=%s",
             len(repaired_plan.resources),
@@ -174,10 +230,96 @@ class LLMTerraformPlanner:
             1,
         )
         repaired_errors = self.coverage_validator.validate(architecture, repaired_plan)
+        self._record_plan_debug(repaired_plan, repaired_errors)
         if repaired_errors:
             repaired_plan.warnings.append("Coverage validator found remaining gaps after one repair retry.")
             repaired_plan.validation_assertions.extend([item.expected for item in repaired_errors])
         return repaired_plan, repaired_errors
+
+    def _parse_with_schema_repair(
+        self,
+        raw: str,
+        architecture: NormalizedArchitecture,
+        capability_plan: InfrastructureCapabilityPlan,
+        llm: LLMProvider,
+    ) -> TerraformResourcePlan:
+        current = raw
+        accumulated_errors: list[dict[str, Any]] = []
+        for attempt in range(3):
+            self.debug_artifacts["terraform_resource_plan_extracted_json.json"] = _extract_json_text(current)
+            try:
+                plan = self._parse_and_normalize(current, architecture, capability_plan)
+                previous_errors: list[dict[str, Any]] = []
+                try:
+                    previous_errors = json.loads(
+                        self.debug_artifacts.get("terraform_resource_plan_validation_errors.json", "[]")
+                    )
+                except Exception:
+                    previous_errors = []
+                self.debug_artifacts["terraform_resource_plan_validation_errors.json"] = _json_debug(
+                    [*previous_errors, *accumulated_errors]
+                )
+                return plan
+            except Exception as exc:
+                if isinstance(exc, ValidationError):
+                    errors = exc.errors(include_url=False, include_input=False)
+                else:
+                    errors = [{"type": type(exc).__name__, "message": str(exc)}]
+                accumulated_errors.extend([{"attempt": attempt + 1, **item} for item in errors])
+                logger.warning("planner_schema_validation_failed attempt=%s errors=%s", attempt + 1, errors)
+                if attempt >= 2:
+                    previous_errors: list[dict[str, Any]] = []
+                    try:
+                        previous_errors = json.loads(
+                            self.debug_artifacts.get("terraform_resource_plan_validation_errors.json", "[]")
+                        )
+                    except Exception:
+                        previous_errors = []
+                    self.debug_artifacts["terraform_resource_plan_validation_errors.json"] = _json_debug(
+                        [*previous_errors, *accumulated_errors]
+                    )
+                    raise
+                current = run_awaitable(
+                    llm.complete(
+                        _schema_repair_prompt(
+                            architecture,
+                            capability_plan,
+                            current,
+                            errors,
+                        )
+                    )
+                )
+                self.debug_artifacts[f"terraform_resource_plan_schema_repair_{attempt + 1}.txt"] = current or ""
+        raise ValueError("TerraformResourcePlan repair attempts exhausted")
+
+    def _record_plan_debug(
+        self,
+        plan: TerraformResourcePlan,
+        findings: list[CoverageFinding],
+    ) -> None:
+        self.debug_artifacts["terraform_resource_plan_parsed.json"] = _json_debug(plan.model_dump(mode="json"))
+        self.debug_artifacts["relationship_coverage_report.json"] = _json_debug(
+            [item.model_dump(mode="json") for item in findings if item.relationship_id]
+        )
+        self.debug_artifacts["iam_synthesis_report.json"] = _json_debug(
+            [
+                {"address": f"{item.terraform_type}.{item.name}", "architecture_resource_id": item.architecture_resource_id}
+                for item in plan.resources
+                if item.terraform_type.startswith("aws_iam_") or item.terraform_type == "aws_lambda_permission"
+            ]
+        )
+        self.debug_artifacts["networking_synthesis_report.json"] = _json_debug(
+            [
+                f"{item.terraform_type}.{item.name}"
+                for item in plan.resources
+                if item.terraform_type in {
+                    "aws_vpc", "aws_subnet", "aws_route_table", "aws_route",
+                    "aws_route_table_association", "aws_internet_gateway", "aws_nat_gateway",
+                    "aws_vpc_endpoint", "aws_security_group", "aws_vpc_security_group_ingress_rule",
+                    "aws_vpc_security_group_egress_rule",
+                }
+            ]
+        )
 
     def repair_validation_errors(
         self,
@@ -197,7 +339,9 @@ class LLMTerraformPlanner:
             True,
             len(repaired_raw or ""),
         )
-        repaired_plan = self._parse_and_normalize(repaired_raw, architecture, capability_plan)
+        repaired_plan = self._parse_with_schema_repair(
+            repaired_raw, architecture, capability_plan, llm
+        )
         return repaired_plan
 
     def _parse_and_normalize(
@@ -228,6 +372,10 @@ def _extract_json_text(raw: str) -> str:
     if start != -1 and end != -1 and end > start:
         return text[start:end + 1]
     return text
+
+
+def _json_debug(value: Any) -> str:
+    return json.dumps(value, indent=2, default=str, ensure_ascii=False)
 
 
 def _resolve_value_to_tf(val: Any, architecture: NormalizedArchitecture) -> tuple[str, Any]:
@@ -403,6 +551,9 @@ def _normalize_plan_data(
             if "architecture_resource_id" not in fixed and "architecture_id" in fixed:
                 fixed["architecture_resource_id"] = fixed["architecture_id"]
             fixed.setdefault("provider_type", fixed.get("terraform_type") or "unknown")
+            architecture_resource = architecture.resource(str(fixed.get("architecture_resource_id", "")))
+            if architecture_resource is not None:
+                fixed["provider_type"] = architecture_resource.provider_type
             fixed.setdefault(
                 "mapping_status",
                 "EXTERNAL" if str(fixed["provider_type"]).startswith("external_") else "RENDERED",
@@ -411,6 +562,10 @@ def _normalize_plan_data(
                 tf_type = fixed.get("terraform_type")
                 tf_name = fixed.get("name")
                 fixed["terraform_addresses"] = [f"{tf_type}.{tf_name}"] if tf_type and tf_name else []
+            fixed["terraform_addresses"] = [
+                str(address).replace("aws_mediaconvert_queue.", "aws_media_convert_queue.")
+                for address in fixed.get("terraform_addresses", [])
+            ]
             fixed.setdefault("notes", fixed.get("reason", ""))
             fixed_mappings.append(fixed)
         mappings = fixed_mappings
@@ -528,8 +683,24 @@ def _ensure_capability_coverage(
         return any(resource_address(item) == address for item in resources)
 
     def add_resource(item: dict) -> None:
-        if not has_resource(resource_address(item)):
+        existing = next((entry for entry in resources if resource_address(entry) == resource_address(item)), None)
+        if existing is None:
             resources.append(item)
+            return
+        if item.get("terraform_type") == "aws_s3_bucket_notification":
+            existing_body = existing.setdefault("body", {})
+            for block_name in ("lambda_function", "queue", "topic"):
+                incoming = item.get("body", {}).get(block_name)
+                if not incoming:
+                    continue
+                current = existing_body.get(block_name)
+                if current and current.get("kind") == "list" and incoming.get("kind") == "list":
+                    current["items"] = [*current.get("items", []), *incoming.get("items", [])]
+                else:
+                    existing_body[block_name] = incoming
+            existing["depends_on"] = _dedupe_strings(
+                [*existing.get("depends_on", []), *item.get("depends_on", [])]
+            )
 
     def add_data_source(item: dict) -> None:
         address = f"{item['terraform_type']}.{item['name']}"
@@ -622,11 +793,21 @@ def _ensure_capability_coverage(
     s3_buckets = [resource for resource in architecture.resources if resource.provider_type == "aws_s3_bucket"]
     queues = [resource for resource in architecture.resources if resource.provider_type == "aws_sqs_queue"]
     dynamo_tables = [resource for resource in architecture.resources if resource.provider_type == "aws_dynamodb_table"]
-    secret_resources = [
+    media_convert_queues = [resource for resource in architecture.resources if resource.provider_type == "aws_media_convert_queue"]
+    external_supabase_resources = [
         resource for resource in architecture.resources
-        if resource.provider_type in {"aws_secretsmanager_secret", "external_supabase"}
+        if resource.provider_type == "external_supabase"
     ]
     capability_types = {item.capability_type for item in capability_plan.capabilities}
+    api_protocol_counts: dict[str, int] = {}
+    for api in apis:
+        protocol = str(api.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
+        api_protocol_counts[protocol] = api_protocol_counts.get(protocol, 0) + 1
+    api_name_by_id: dict[str, str] = {}
+    for api in apis:
+        protocol = str(api.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
+        base_name = "websocket_api" if protocol == "WEBSOCKET" else "http_api"
+        api_name_by_id[api.id] = base_name if api_protocol_counts[protocol] == 1 else _safe_label(api.name)
 
     if lambdas:
         add_resource(
@@ -657,7 +838,7 @@ def _ensure_capability_coverage(
         derive("aws_iam_role", "lambda_execution_role", "Execution role for Lambda functions.", "iam.tf")
         derive("aws_iam_role_policy_attachment", "lambda_basic_execution", "Basic CloudWatch logs permissions for Lambda.", "iam.tf")
 
-    if secret_resources and lambdas:
+    if external_supabase_resources and lambdas:
         ensure_variable("supabase_url", type="string", description="External service URL.", required=True)
         ensure_variable(
             "supabase_service_role_key",
@@ -671,7 +852,7 @@ def _ensure_capability_coverage(
                 "terraform_type": "aws_secretsmanager_secret",
                 "name": "supabase",
                 "file": "secrets.tf",
-                "architecture_resource_id": next((item.id for item in secret_resources), None),
+                "architecture_resource_id": external_supabase_resources[0].id,
                 "body": {"name": {"kind": "expr", "value": 'format("%s-supabase", local.name_prefix)'}},
             }
         )
@@ -730,7 +911,8 @@ def _ensure_capability_coverage(
 
     for api in apis:
         protocol = str(api.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
-        api_name = "websocket_api" if protocol == "WEBSOCKET" else "http_api"
+        api_name = api_name_by_id[api.id]
+        stage_name = "default" if len(apis) == 1 else f"{api_name}_default"
         api_body = {
             "name": {"kind": "expr", "value": f'format("%s-{api_name}", local.name_prefix)'},
             "protocol_type": {"kind": "literal", "value": protocol},
@@ -747,7 +929,7 @@ def _ensure_capability_coverage(
         add_resource(
             {
                 "terraform_type": "aws_apigatewayv2_api",
-                "name": "http_api",
+                "name": api_name,
                 "file": "api_gateway.tf",
                 "architecture_resource_id": api.id,
                 "body": api_body,
@@ -756,7 +938,7 @@ def _ensure_capability_coverage(
         add_resource(
             {
                 "terraform_type": "aws_apigatewayv2_stage",
-                "name": "default",
+                "name": stage_name,
                 "file": "api_gateway.tf",
                 "body": {
                     "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
@@ -772,7 +954,7 @@ def _ensure_capability_coverage(
             [f"aws_apigatewayv2_api.{api_name}"],
             "Rendered as API Gateway API plus supporting stage and route wiring.",
         )
-        derive("aws_apigatewayv2_stage", "default", "Expose the HTTP API with auto-deploy stage.", "api_gateway.tf")
+        derive("aws_apigatewayv2_stage", stage_name, "Expose the API with an auto-deploy stage.", "api_gateway.tf")
         output_name = "websocket_api_endpoint" if protocol == "WEBSOCKET" else "api_endpoint"
         output_description = "WebSocket API endpoint." if protocol == "WEBSOCKET" else "HTTP API endpoint."
         ensure_output(
@@ -841,7 +1023,7 @@ def _ensure_capability_coverage(
         # Build environment variables block — always emit ENVIRONMENT, plus any
         # resource-ARN env vars sourced from the configuration, plus secret ARN if applicable.
         env_items: dict = {"ENVIRONMENT": {"kind": "expr", "value": "var.environment"}}
-        if secret_resources:
+        if external_supabase_resources:
             env_items["SUPABASE_SECRET_ARN"] = {"kind": "expr", "value": "aws_secretsmanager_secret.supabase.arn"}
         # Inherit raw environment variables from architecture configuration
         cfg_env = lambda_resource.configuration.get("environment") or {}
@@ -891,7 +1073,7 @@ def _ensure_capability_coverage(
         if source.provider_type == "aws_apigatewayv2_api" and target.provider_type == "aws_lambda_function":
             label = _safe_label(target.name)
             protocol = str(source.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
-            api_name = "websocket_api" if protocol == "WEBSOCKET" else "http_api"
+            api_name = api_name_by_id[source.id]
             route_name = f"{label}_{_safe_route_label(str(relation.get('label', 'route')))}" if protocol == "WEBSOCKET" else label
             route_key = (
                 _websocket_route_key_from_label(str(relation.get("label", "")))
@@ -951,6 +1133,77 @@ def _ensure_capability_coverage(
             derive("aws_lambda_permission", f"allow_api_gateway_{route_name}", f"Allow API Gateway to invoke Lambda {label}.", "lambda.tf")
             validation_assertions.append(f"Relationship {relation.get('id') or relation_index} should render API Gateway route, integration, and Lambda permission.")
 
+        elif source.provider_type == "aws_apigatewayv2_api" and target.provider_type == "aws_sqs_queue":
+            api_name = api_name_by_id[source.id]
+            queue_label = _safe_label(target.name)
+            role_name = f"api_gateway_{queue_label}"
+            add_resource(
+                {
+                    "terraform_type": "aws_iam_role",
+                    "name": role_name,
+                    "file": "iam.tf",
+                    "body": {
+                        "name": {"kind": "expr", "value": f'format("%s-{queue_label}-api", local.name_prefix)'},
+                        "assume_role_policy": {
+                            "kind": "expr",
+                            "value": 'jsonencode({Version = "2012-10-17", Statement = [{Effect = "Allow", Principal = {Service = "apigateway.amazonaws.com"}, Action = "sts:AssumeRole"}]})',
+                        },
+                    },
+                }
+            )
+            add_resource(
+                {
+                    "terraform_type": "aws_iam_role_policy",
+                    "name": role_name,
+                    "file": "iam.tf",
+                    "body": {
+                        "role": {"kind": "expr", "value": f"aws_iam_role.{role_name}.id"},
+                        "policy": {
+                            "kind": "expr",
+                            "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = ["sqs:SendMessage"], Resource = aws_sqs_queue.{queue_label}.arn}}]}})',
+                        },
+                    },
+                }
+            )
+            add_resource(
+                {
+                    "terraform_type": "aws_apigatewayv2_integration",
+                    "name": f"{queue_label}_integration",
+                    "file": "api_gateway.tf",
+                    "body": {
+                        "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
+                        "integration_type": {"kind": "literal", "value": "AWS_PROXY"},
+                        "integration_subtype": {"kind": "literal", "value": "SQS-SendMessage"},
+                        "credentials_arn": {"kind": "expr", "value": f"aws_iam_role.{role_name}.arn"},
+                        "payload_format_version": {"kind": "literal", "value": "1.0"},
+                        "request_parameters": {
+                            "kind": "object",
+                            "items": {
+                                "QueueUrl": {"kind": "expr", "value": f"aws_sqs_queue.{queue_label}.id"},
+                                "MessageBody": {"kind": "literal", "value": "$request.body"},
+                            },
+                        },
+                    },
+                }
+            )
+            route_key = _route_key_from_label(str(relation.get("label", ""))) or f"POST /{queue_label}"
+            add_resource(
+                {
+                    "terraform_type": "aws_apigatewayv2_route",
+                    "name": f"{queue_label}_route",
+                    "file": "api_gateway.tf",
+                    "body": {
+                        "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
+                        "route_key": {"kind": "literal", "value": route_key},
+                        "target": {"kind": "expr", "value": f'"integrations/${{aws_apigatewayv2_integration.{queue_label}_integration.id}}"'},
+                    },
+                }
+            )
+            derive("aws_iam_role", role_name, "API Gateway service role for direct SQS ingestion.", "iam.tf")
+            derive("aws_iam_role_policy", role_name, "Allow API Gateway to send only to the selected queue.", "iam.tf")
+            derive("aws_apigatewayv2_integration", f"{queue_label}_integration", "Direct HTTP API to SQS integration.", "api_gateway.tf")
+            derive("aws_apigatewayv2_route", f"{queue_label}_route", "Expose the approved SQS ingestion route.", "api_gateway.tf")
+
         elif source.provider_type == "aws_s3_bucket" and target.provider_type == "aws_lambda_function":
             # S3 upload trigger: grant S3 permission to invoke Lambda + notification
             bucket_label = _safe_label(source.name)
@@ -970,7 +1223,7 @@ def _ensure_capability_coverage(
                     },
                 }
             )
-            notif_name = f"{bucket_label}_trigger"
+            notif_name = f"{bucket_label}_notification"
             add_resource(
                 {
                     "terraform_type": "aws_s3_bucket_notification",
@@ -1017,15 +1270,245 @@ def _ensure_capability_coverage(
             derive("aws_iam_role_policy", s3_read_policy_name, f"Least-privilege S3 read access for Lambda {lambda_label}.", "iam.tf")
             validation_assertions.append(f"S3 trigger relationship {relation.get('id') or relation_index} should render lambda permission, bucket notification, and IAM policy.")
 
+        elif source.provider_type == "aws_sqs_queue" and target.provider_type == "aws_lambda_function":
+            queue_label = _safe_label(source.name)
+            lambda_label = _safe_label(target.name)
+            mapping_name = f"{queue_label}_{lambda_label}"
+            add_resource(
+                {
+                    "terraform_type": "aws_lambda_event_source_mapping",
+                    "name": mapping_name,
+                    "file": "lambda.tf",
+                    "body": {
+                        "event_source_arn": {"kind": "expr", "value": f"aws_sqs_queue.{queue_label}.arn"},
+                        "function_name": {"kind": "expr", "value": f"aws_lambda_function.{lambda_label}.arn"},
+                        "batch_size": {"kind": "literal", "value": int(source.configuration.get("batch_size", 10))},
+                        "enabled": {"kind": "literal", "value": True},
+                    },
+                }
+            )
+            policy_name = f"lambda_{lambda_label}_sqs_{queue_label}"
+            add_resource(
+                {
+                    "terraform_type": "aws_iam_role_policy",
+                    "name": policy_name,
+                    "file": "iam.tf",
+                    "body": {
+                        "name": {"kind": "expr", "value": f'format("%s-{lambda_label}-sqs", local.name_prefix)'},
+                        "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.id"},
+                        "policy": {
+                            "kind": "expr",
+                            "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = aws_sqs_queue.{queue_label}.arn}}]}})',
+                        },
+                    },
+                }
+            )
+            derive("aws_lambda_event_source_mapping", mapping_name, "Wire SQS messages to the selected Lambda.", "lambda.tf")
+            derive("aws_iam_role_policy", policy_name, "Allow the Lambda to consume only the selected SQS queue.", "iam.tf")
+            validation_assertions.append(f"SQS trigger relationship {relation.get('id') or relation_index} should render an event source mapping and scoped IAM policy.")
+
+        elif source.provider_type == "aws_s3_bucket" and target.provider_type == "aws_sqs_queue":
+            bucket_label = _safe_label(source.name)
+            queue_label = _safe_label(target.name)
+            notification_name = f"{bucket_label}_notification"
+            add_resource(
+                {
+                    "terraform_type": "aws_s3_bucket_notification",
+                    "name": notification_name,
+                    "file": "storage.tf",
+                    "body": {
+                        "bucket": {"kind": "expr", "value": f"aws_s3_bucket.{bucket_label}.id"},
+                        "queue": {
+                            "kind": "list",
+                            "items": [{
+                                "kind": "block",
+                                "type": "queue",
+                                "body": {
+                                    "queue_arn": {"kind": "expr", "value": f"aws_sqs_queue.{queue_label}.arn"},
+                                    "events": {"kind": "list", "items": [{"kind": "literal", "value": "s3:ObjectCreated:*"}]},
+                                },
+                            }],
+                        },
+                    },
+                    "depends_on": [f"aws_sqs_queue_policy.allow_s3_{bucket_label}_{queue_label}"],
+                }
+            )
+            add_resource(
+                {
+                    "terraform_type": "aws_sqs_queue_policy",
+                    "name": f"allow_s3_{bucket_label}_{queue_label}",
+                    "file": "iam.tf",
+                    "body": {
+                        "queue_url": {"kind": "expr", "value": f"aws_sqs_queue.{queue_label}.id"},
+                        "policy": {
+                            "kind": "expr",
+                            "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Principal = {{Service = "s3.amazonaws.com"}}, Action = "sqs:SendMessage", Resource = aws_sqs_queue.{queue_label}.arn, Condition = {{ArnEquals = {{"aws:SourceArn" = aws_s3_bucket.{bucket_label}.arn}}}}}}]}})',
+                        },
+                    },
+                }
+            )
+            derive("aws_s3_bucket_notification", notification_name, "Send S3 object-created events to the selected SQS queue.", "storage.tf")
+            derive("aws_sqs_queue_policy", f"allow_s3_{bucket_label}_{queue_label}", "Allow only the selected S3 bucket to send messages.", "iam.tf")
+            validation_assertions.append(f"S3-to-SQS relationship {relation.get('id') or relation_index} should render notification and queue policy resources.")
+
+    # Deterministic least-privilege IAM synthesis follows the approved graph.
+    # These rules add permissions only; they never replace an architecture service.
+    for relation_index, relation in enumerate(architecture.relationships):
+        source = architecture.resource(str(relation.get("source_id", "")))
+        target = architecture.resource(str(relation.get("target_id", "")))
+        if not source or not target or source.provider_type != "aws_lambda_function":
+            continue
+        lambda_label = _safe_label(source.name)
+        target_label = _safe_label(target.name)
+        relation_text = " ".join(
+            str(relation.get(key, "")) for key in ("type", "label", "purpose")
+        ).upper()
+
+        actions: list[str] = []
+        resource_exprs: list[str] = []
+        policy_suffix = target_label
+        if target.provider_type == "aws_s3_bucket":
+            wants_write = any(token in relation_text for token in ("WRITE", "PUT", "UPLOAD"))
+            wants_read = any(token in relation_text for token in ("READ", "GET", "DOWNLOAD", "PRESIGN")) or not wants_write
+            if wants_read:
+                actions.extend(["s3:GetObject", "s3:ListBucket"])
+            if wants_write:
+                actions.extend(["s3:PutObject", "s3:AbortMultipartUpload"])
+            resource_exprs = [f"aws_s3_bucket.{target_label}.arn", f'"${{aws_s3_bucket.{target_label}.arn}}/*"']
+        elif target.provider_type == "aws_dynamodb_table":
+            wants_write = any(token in relation_text for token in ("WRITE", "PUT", "UPDATE", "DELETE"))
+            wants_read = any(token in relation_text for token in ("READ", "GET", "QUERY", "SCAN")) or not wants_write
+            if wants_read:
+                actions.extend(["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"])
+            if wants_write:
+                actions.extend(["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"])
+            resource_exprs = [f"aws_dynamodb_table.{target_label}.arn"]
+        elif target.provider_type == "aws_sqs_queue":
+            if any(token in relation_text for token in ("READ", "CONSUM", "RECEIVE")):
+                actions.extend(["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"])
+                event_mapping_name = f"{target_label}_{lambda_label}"
+                add_resource(
+                    {
+                        "terraform_type": "aws_lambda_event_source_mapping",
+                        "name": event_mapping_name,
+                        "file": "lambda.tf",
+                        "body": {
+                            "event_source_arn": {"kind": "expr", "value": f"aws_sqs_queue.{target_label}.arn"},
+                            "function_name": {"kind": "expr", "value": f"aws_lambda_function.{lambda_label}.arn"},
+                            "batch_size": {"kind": "literal", "value": int(target.configuration.get("batch_size", 10))},
+                            "enabled": {"kind": "literal", "value": True},
+                        },
+                    }
+                )
+                derive("aws_lambda_event_source_mapping", event_mapping_name, "Wire the approved SQS consumer relationship.", "lambda.tf")
+            else:
+                actions.append("sqs:SendMessage")
+            resource_exprs = [f"aws_sqs_queue.{target_label}.arn"]
+        elif target.provider_type == "aws_secretsmanager_secret":
+            actions.append("secretsmanager:GetSecretValue")
+            resource_exprs = [f"aws_secretsmanager_secret.{target_label}.arn"]
+        elif target.provider_type == "aws_media_convert_queue":
+            actions.extend(["mediaconvert:CreateJob", "mediaconvert:GetJob"])
+            resource_exprs = [f"aws_media_convert_queue.{target_label}.arn"]
+            policy_suffix = "media_convert"
+        elif target.provider_type in {"aws_ecs_service", "aws_ecs_task_definition", "aws_ecs_cluster"}:
+            actions.append("ecs:RunTask")
+            task_definition = next((item for item in architecture.resources if item.provider_type == "aws_ecs_task_definition"), None)
+            cluster = next((item for item in architecture.resources if item.provider_type == "aws_ecs_cluster"), None)
+            resource_exprs = []
+            if task_definition:
+                resource_exprs.append(f"aws_ecs_task_definition.{_safe_label(task_definition.name)}.arn")
+            if cluster:
+                resource_exprs.append(f"aws_ecs_cluster.{_safe_label(cluster.name)}.arn")
+            policy_suffix = "ecs_run_task"
+
+        if not actions or not resource_exprs:
+            continue
+        statements = [
+            f'{{Effect = "Allow", Action = {json.dumps(_dedupe_strings(actions))}, Resource = [{", ".join(resource_exprs)}]}}'
+        ]
+        if target.provider_type in {"aws_ecs_service", "aws_ecs_task_definition", "aws_ecs_cluster"}:
+            pass_roles = [
+                f"aws_iam_role.{_safe_label(item.name)}.arn"
+                for item in architecture.resources
+                if item.provider_type == "aws_iam_role"
+                and any(token in f"{item.id} {item.name}".lower() for token in ("task", "execution"))
+            ]
+            if pass_roles:
+                statements.append(
+                    f'{{Effect = "Allow", Action = ["iam:PassRole"], Resource = [{", ".join(pass_roles)}]}}'
+                )
+        if target.provider_type == "aws_media_convert_queue":
+            media_roles = [
+                f"aws_iam_role.{_safe_label(item.name)}.arn"
+                for item in architecture.resources
+                if item.provider_type == "aws_iam_role"
+                and "media" in f"{item.id} {item.name}".lower()
+            ]
+            if media_roles:
+                statements.append(
+                    f'{{Effect = "Allow", Action = ["iam:PassRole"], Resource = [{", ".join(media_roles)}]}}'
+                )
+        policy_name = f"lambda_{lambda_label}_{policy_suffix}_access"
+        add_resource(
+            {
+                "terraform_type": "aws_iam_role_policy",
+                "name": policy_name,
+                "file": "iam.tf",
+                "body": {
+                    "name": {"kind": "expr", "value": f'format("%s-{lambda_label}-{policy_suffix}", local.name_prefix)'},
+                    "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.id"},
+                    "policy": {
+                        "kind": "expr",
+                        "value": f'jsonencode({{Version = "2012-10-17", Statement = [{", ".join(statements)}]}})',
+                    },
+                },
+            }
+        )
+        derive("aws_iam_role_policy", policy_name, f"Scoped access implementing relationship {relation.get('id') or relation_index}.", "iam.tf")
+
+    for relation_index, relation in enumerate(architecture.relationships):
+        source = architecture.resource(str(relation.get("source_id", "")))
+        target = architecture.resource(str(relation.get("target_id", "")))
+        if (
+            not source or not target
+            or source.provider_type != "aws_iam_role"
+            or target.provider_type != "aws_s3_bucket"
+        ):
+            continue
+        role_label = _safe_label(source.name)
+        bucket_label = _safe_label(target.name)
+        relation_text = " ".join(str(relation.get(key, "")) for key in ("type", "label", "purpose")).upper()
+        actions = ["s3:GetObject", "s3:ListBucket"]
+        if any(token in relation_text for token in ("WRITE", "PUT", "OUTPUT")):
+            actions.extend(["s3:PutObject", "s3:AbortMultipartUpload"])
+        policy_name = f"{role_label}_{bucket_label}_access"
+        add_resource(
+            {
+                "terraform_type": "aws_iam_role_policy",
+                "name": policy_name,
+                "file": "iam.tf",
+                "body": {
+                    "role": {"kind": "expr", "value": f"aws_iam_role.{role_label}.id"},
+                    "policy": {
+                        "kind": "expr",
+                        "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = {json.dumps(_dedupe_strings(actions))}, Resource = [aws_s3_bucket.{bucket_label}.arn, "${{aws_s3_bucket.{bucket_label}.arn}}/*"]}}]}})',
+                    },
+                },
+            }
+        )
+        derive("aws_iam_role_policy", policy_name, f"Scoped S3 access implementing relationship {relation.get('id') or relation_index}.", "iam.tf")
+
     for bucket in s3_buckets:
         label = _safe_label(bucket.name)
+        bucket_suffix = _safe_bucket_name(bucket.name)
         add_resource(
             {
                 "terraform_type": "aws_s3_bucket",
                 "name": label,
                 "file": "storage.tf",
                 "architecture_resource_id": bucket.id,
-                "body": {"bucket": {"kind": "expr", "value": f'format("%s-{label}", local.name_prefix)'}},
+                "body": {"bucket": {"kind": "expr", "value": f'format("%s-{bucket_suffix}", local.name_prefix)'}},
             }
         )
         add_resource(
@@ -1071,6 +1554,54 @@ def _ensure_capability_coverage(
                 },
             }
         )
+        cors_config = bucket.configuration.get("cors_configuration") or bucket.configuration.get("cors")
+        if isinstance(cors_config, dict):
+            cors_rules = cors_config.get("cors_rule") or cors_config.get("rules") or [cors_config]
+        elif isinstance(cors_config, list):
+            cors_rules = cors_config
+        else:
+            cors_rules = []
+        if cors_rules:
+            add_resource(
+                {
+                    "terraform_type": "aws_s3_bucket_cors_configuration",
+                    "name": label,
+                    "file": "storage.tf",
+                    "body": {
+                        "bucket": {"kind": "expr", "value": f"aws_s3_bucket.{label}.id"},
+                        "cors_rule": _as_repeated_block("cors_rule", cors_rules),
+                    },
+                }
+            )
+            derive("aws_s3_bucket_cors_configuration", label, f"CORS configuration requested for S3 bucket {label}.", "storage.tf")
+        lifecycle_config = bucket.configuration.get("lifecycle_configuration") or bucket.configuration.get("lifecycle")
+        if isinstance(lifecycle_config, dict):
+            lifecycle_rules = lifecycle_config.get("rule") or lifecycle_config.get("rules") or [lifecycle_config]
+        elif isinstance(lifecycle_config, list):
+            lifecycle_rules = lifecycle_config
+        else:
+            lifecycle_rules = []
+        if lifecycle_rules:
+            normalized_rules = []
+            for index, rule in enumerate(lifecycle_rules):
+                if not isinstance(rule, dict):
+                    continue
+                fixed_rule = dict(rule)
+                fixed_rule.setdefault("id", f"rule-{index + 1}")
+                fixed_rule.setdefault("status", "Enabled")
+                normalized_rules.append(fixed_rule)
+            add_resource(
+                {
+                    "terraform_type": "aws_s3_bucket_lifecycle_configuration",
+                    "name": label,
+                    "file": "storage.tf",
+                    "body": {
+                        "bucket": {"kind": "expr", "value": f"aws_s3_bucket.{label}.id"},
+                        "rule": _as_repeated_block("rule", normalized_rules),
+                    },
+                }
+            )
+            derive("aws_s3_bucket_lifecycle_configuration", label, f"Lifecycle rules requested for S3 bucket {label}.", "storage.tf")
         ensure_mapping(bucket.id, bucket.provider_type, "RENDERED", [f"aws_s3_bucket.{label}"], "Rendered as S3 bucket with public access blocked and AES256 encryption.")
         derive("aws_s3_bucket_server_side_encryption_configuration", label, f"AES256 encryption for S3 bucket {label}.", "storage.tf")
 
@@ -1115,6 +1646,24 @@ def _ensure_capability_coverage(
         if ttl:
             resources[-1]["body"]["ttl"] = _as_single_block("ttl", ttl)
         ensure_mapping(table.id, table.provider_type, "RENDERED", [f"aws_dynamodb_table.{label}"], "Rendered as DynamoDB table.")
+
+    for queue in media_convert_queues:
+        label = _safe_label(queue.name)
+        pricing_plan = queue.configuration.get("pricing_plan", queue.configuration.get("pricing_tier", "ON_DEMAND"))
+        add_resource(
+            {
+                "terraform_type": "aws_media_convert_queue",
+                "name": label,
+                "file": "compute.tf",
+                "architecture_resource_id": queue.id,
+                "body": {
+                    "name": {"kind": "expr", "value": f'format("%s-{label}", local.name_prefix)'},
+                    "pricing_plan": {"kind": "literal", "value": str(pricing_plan)},
+                    "status": {"kind": "literal", "value": str(queue.configuration.get("status", "ACTIVE"))},
+                },
+            }
+        )
+        ensure_mapping(queue.id, queue.provider_type, "RENDERED", [f"aws_media_convert_queue.{label}"], "Preserved and rendered as the selected AWS Elemental MediaConvert queue.")
 
     for resource in architecture.resources:
         if resource.provider_type == "external_supabase":
@@ -1218,6 +1767,13 @@ def _safe_label(value: str) -> str:
     return text or "app"
 
 
+def _safe_bucket_name(value: str) -> str:
+    text = "".join(ch.lower() if ch.isalnum() else "-" for ch in value)
+    while "--" in text:
+        text = text.replace("--", "-")
+    return text.strip("-")[:38] or "bucket"
+
+
 def _dedupe_strings(items: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -1245,6 +1801,26 @@ RESOURCE_FIELD_SCHEMAS = {
     "aws_apigatewayv2_api": {
         "cors_configuration": "singleton_block",
     },
+    "aws_s3_bucket_notification": {
+        "lambda_function": "repeated_block",
+        "queue": "repeated_block",
+        "topic": "repeated_block",
+    },
+    "aws_s3_bucket_lifecycle_configuration": {"rule": "repeated_block"},
+    "aws_s3_bucket_server_side_encryption_configuration": {"rule": "repeated_block"},
+    "aws_s3_bucket_cors_configuration": {"cors_rule": "repeated_block"},
+    "aws_ecs_service": {
+        "load_balancer": "repeated_block",
+        "network_configuration": "singleton_block",
+    },
+    "aws_ecs_task_definition": {
+        "runtime_platform": "singleton_block",
+        "volume": "repeated_block",
+    },
+    "aws_lb_listener": {"default_action": "repeated_block"},
+    "aws_lb_listener_rule": {"action": "repeated_block", "condition": "repeated_block"},
+    "aws_iam_role": {"assume_role_policy": "json_attribute"},
+    "aws_sqs_queue": {"redrive_policy": "json_attribute"},
 }
 
 
@@ -1285,7 +1861,21 @@ def _normalize_field_value(field: str, value, field_type: str):
         if isinstance(parsed, dict):
             return _as_repeated_block(field, [parsed])
         return hcl
+    if field_type == "json_attribute" and isinstance(parsed, (dict, list)):
+        return {"kind": "expr", "value": f"jsonencode({_to_hcl_expression(parsed)})"}
     return hcl
+
+
+def _to_hcl_expression(value) -> str:
+    if isinstance(value, dict):
+        return "{" + ", ".join(f'{json.dumps(str(key))} = {_to_hcl_expression(item)}' for key, item in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_to_hcl_expression(item) for item in value) + "]"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    return json.dumps(value)
 
 
 def _extract_plain_value(value):
@@ -1306,7 +1896,7 @@ def _as_single_block(block_type: str, body: dict) -> dict:
     return {
         "kind": "block",
         "type": block_type,
-        "body": {key: _coerce_hcl_value(val) for key, val in body.items()},
+        "body": _coerce_block_body(body),
     }
 
 
@@ -1317,12 +1907,45 @@ def _as_repeated_block(block_type: str, items: list[dict]) -> dict:
             {
                 "kind": "block",
                 "type": block_type,
-                "body": {key: _coerce_hcl_value(val) for key, val in item.items()},
+                "body": _coerce_block_body(item),
             }
             for item in items
             if isinstance(item, dict)
         ],
     }
+
+
+SINGLETON_NESTED_BLOCK_FIELDS = {
+    "apply_server_side_encryption_by_default",
+    "expiration",
+    "filter",
+    "noncurrent_version_expiration",
+    "redirect",
+    "forward",
+    "fixed_response",
+    "authenticate_cognito",
+    "port",
+    "host_header",
+    "path_pattern",
+    "http_header",
+    "query_string",
+    "source_ip",
+}
+REPEATED_NESTED_BLOCK_FIELDS = {"transition", "noncurrent_version_transition"}
+
+
+def _coerce_block_body(body: dict) -> dict:
+    result: dict = {}
+    for key, value in body.items():
+        parsed = _try_parse_structure_literal(value) if isinstance(value, str) else value
+        if key in SINGLETON_NESTED_BLOCK_FIELDS and isinstance(parsed, dict):
+            result[key] = _as_single_block(key, parsed)
+        elif key in REPEATED_NESTED_BLOCK_FIELDS:
+            items = parsed if isinstance(parsed, list) else [parsed]
+            result[key] = _as_repeated_block(key, [item for item in items if isinstance(item, dict)])
+        else:
+            result[key] = _coerce_hcl_value(parsed)
+    return result
 
 
 def _remove_broad_iam_attachments(resources: list[dict], warnings: list[str]) -> None:

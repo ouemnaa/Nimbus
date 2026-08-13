@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -344,9 +345,11 @@ class TerraformGeneratorService:
         try:
             resource_plan, coverage_findings = self.llm_planner.create_plan(normalized, reasoning, llm)
         except Exception as exc:
+            self._write_planner_debug(normalized, options)
+            planner_output_invalid = isinstance(exc, ValueError)
             return GenerationResponse(
-                generation_status="UNSUPPORTED",
-                generation_mode="UNSUPPORTED",
+                generation_status="FAILED" if planner_output_invalid else "UNSUPPORTED",
+                generation_mode="LLM_PLANNED_GENERIC_RENDER" if planner_output_invalid else "UNSUPPORTED",
                 trusted=False,
                 requires_human_review=True,
                 draft_pattern_guess=_guess_draft_pattern(normalized),
@@ -358,6 +361,8 @@ class TerraformGeneratorService:
                 metadata=GenerationMetadata(**metadata_base),
                 error=f"LLM planner failed: {type(exc).__name__}: {exc}",
             )
+
+        self._write_planner_debug(normalized, options)
 
         if not resource_plan.resources:
             logger.error(
@@ -507,8 +512,54 @@ class TerraformGeneratorService:
             runtime_risks=resource_plan.runtime_risks,
             validation_assertions=resource_plan.validation_assertions,
         )
-        safety_result = self.safety_checker.check(draft_artifacts, dummy_plan)
         validation_result = self._validate_generated_artifacts(draft_artifacts)
+
+        if validation_result.validation_status == "FAILED":
+            try:
+                repaired_plan = self.llm_planner.repair_validation_errors(
+                    normalized,
+                    reasoning,
+                    llm,
+                    resource_plan,
+                    validation_result.errors,
+                )
+                repaired_findings = self.llm_planner.coverage_validator.validate(normalized, repaired_plan)
+                repaired_files = self.generic_renderer.render(repaired_plan)
+                repaired_artifacts = [
+                    FileArtifact(path=validate_artifact_path(item["path"]), content=item["content"])
+                    for item in repaired_files
+                ]
+                repaired_validation = self._validate_generated_artifacts(repaired_artifacts)
+                resource_plan = repaired_plan
+                coverage_findings = repaired_findings
+                draft_artifacts = repaired_artifacts
+                validation_result = repaired_validation
+                metadata_base["local_output_dir"] = self.writer.write(
+                    repaired_files,
+                    project_id=options.project_id,
+                    architecture_id=normalized.architecture_id,
+                    architecture_version_id=options.architecture_version_id,
+                    architecture_version=normalized.architecture_version,
+                )
+            except Exception as exc:
+                logger.exception("Terraform validation repair failed")
+                validation_result.errors.append(
+                    f"Validation repair failed: {type(exc).__name__}: {exc}"
+                )
+
+        self.llm_planner.debug_artifacts["rendered_file_manifest.json"] = json.dumps(
+            {
+                "files": [artifact.path for artifact in draft_artifacts],
+                "file_count": len(draft_artifacts),
+                "resource_count": len(resource_plan.resources),
+            },
+            indent=2,
+        )
+        self.llm_planner.debug_artifacts["terraform_validate_result.json"] = json.dumps(
+            validation_result.model_dump(mode="json"), indent=2
+        )
+        self._write_planner_debug(normalized, options)
+        safety_result = self.safety_checker.check(draft_artifacts, dummy_plan)
 
         reviewer_llm = llm if reviewer_enabled else None
         review_result = self.reviewer_agent.review(
@@ -552,9 +603,43 @@ class TerraformGeneratorService:
                 error="Safety checker rejected the LLM-planned generic render output.",
             )
 
+        if validation_result.validation_status == "FAILED":
+            metadata_base["generated_file_count"] = len(draft_artifacts)
+            return GenerationResponse(
+                generation_status="FAILED_VALIDATION",
+                generation_mode="LLM_PLANNED_GENERIC_RENDER",
+                trusted=False,
+                requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
+                draft_pattern_guess=_guess_draft_pattern(normalized),
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
+                files=draft_artifacts,
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+                runtime_risks=resource_plan.runtime_risks,
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
+                validation=validation_result.model_dump(),
+                coverage_findings=_normalize_coverage_findings(coverage_findings),
+                safety_findings=[f.model_dump() for f in safety_result.findings],
+                reasoning=reasoning.model_dump(),
+                next_steps=["Review terraform_validate_result.json and correct the remaining provider/schema errors before deployment."],
+                metadata=GenerationMetadata(**metadata_base),
+                error="Terraform validation failed after one repair attempt.",
+            )
+
         metadata_base["generated_file_count"] = len(draft_artifacts)
+        blocking_coverage = [
+            item for item in coverage_findings
+            if str(getattr(item, "severity", "")).upper() in {"HIGH", "CRITICAL"}
+        ]
         return GenerationResponse(
-            generation_status="NEEDS_REVIEW",
+            generation_status="FAILED" if blocking_coverage else "NEEDS_REVIEW",
             generation_mode="LLM_PLANNED_GENERIC_RENDER",
             trusted=False,
             requires_human_review=True,
@@ -578,11 +663,18 @@ class TerraformGeneratorService:
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
             next_steps=[
-                "Draft Terraform generated from an LLM-planned resource plan. This architecture is not yet covered by a trusted Nimbus deterministic pattern. Review carefully before use.",
+                (
+                    "Resolve the structured coverage findings before treating these files as a complete Terraform draft."
+                    if blocking_coverage
+                    else "Draft Terraform generated from an LLM-planned resource plan. This architecture is not yet covered by a trusted Nimbus deterministic pattern. Review carefully before use."
+                ),
                 "Address validation, safety, and reviewer findings before any deploy or apply workflow.",
             ],
             metadata=GenerationMetadata(**metadata_base),
-            error=None,
+            error=(
+                "Generic compiler coverage validation failed after one repair attempt."
+                if blocking_coverage else None
+            ),
         )
 
     def _validate_generated_artifacts(
@@ -597,6 +689,24 @@ class TerraformGeneratorService:
         from app.services.validator_service import TerraformValidatorService
 
         return TerraformValidatorService(self.settings)
+
+    def _write_planner_debug(
+        self,
+        normalized: NormalizedArchitecture,
+        options: GenerateOptions,
+    ) -> None:
+        if not self.llm_planner.debug_artifacts:
+            return
+        try:
+            self.writer.write_debug(
+                self.llm_planner.debug_artifacts,
+                project_id=options.project_id,
+                architecture_id=normalized.architecture_id,
+                architecture_version_id=options.architecture_version_id,
+                architecture_version=normalized.architecture_version,
+            )
+        except Exception:
+            logger.exception("Failed to persist generic compiler debug artifacts")
 
     def _unsupported(
         self,
