@@ -47,6 +47,37 @@ def _resolve_ecs_strategy(
     reasoning: TerraformReasoningResult,
     plan_resources: dict[str, Any],
 ) -> dict[str, Any]:
+    if reasoning.reasoning_status == "NEEDS_INPUT":
+        public_subnets = plan_resources.get("public_subnets") or []
+        private_subnets = plan_resources.get("private_subnets") or []
+        if not public_subnets:
+            public_subnets = private_subnets
+
+        if public_subnets:
+            fallback_warnings = list(reasoning.warnings)
+            fallback_warnings.append(
+                "Generated Terraform uses a deterministic fallback: ECS tasks were moved to public subnets with assign_public_ip=true so the stack remains renderable without NAT or VPC endpoints."
+            )
+            return {
+                "generation_mode": "DETERMINISTIC_SUPPORTED",
+                "deployment_strategy": "public_ecs_no_nat_low_cost_dev",
+                "validation_assertions": ASSERTIONS_BY_STRATEGY["public_ecs_no_nat_low_cost_dev"],
+                "runtime_risks": reasoning.runtime_risks,
+                "warnings": fallback_warnings,
+                "safety_expectations": [
+                    "ECS security group allows inbound only from ALB SG, not 0.0.0.0/0.",
+                    "RDS publicly_accessible=false.",
+                    "ECS tasks run in public subnets with public IPs until NAT Gateway or VPC endpoints are added.",
+                ],
+                "resources": {
+                    **plan_resources,
+                    "ecs_subnets": public_subnets,
+                    "assign_public_ip": True,
+                    "nat_label": None,
+                    "private_subnets": private_subnets,
+                },
+            }
+
     if strategy == "public_ecs_no_nat_low_cost_dev":
         public_subnets = plan_resources.get("public_subnets") or []
         private_subnets = plan_resources.get("private_subnets") or []
@@ -108,8 +139,8 @@ def _resolve_ecs_strategy(
             "Add a NAT Gateway or use the public_ecs_no_nat_low_cost_dev strategy."
         )
 
-    # Reasoning returned NEEDS_INPUT or unknown strategy
-    if reasoning.reasoning_status in ("NEEDS_INPUT", "UNSUPPORTED", "FAILED"):
+    # Reasoning returned unsupported or unknown strategy
+    if reasoning.reasoning_status in ("UNSUPPORTED", "FAILED"):
         reasons = reasoning.unsupported_reasons or reasoning.warnings or []
         raise UnsupportedStrategyError(
             "Cannot resolve ECS deployment strategy: " + "; ".join(reasons)

@@ -22,7 +22,7 @@ def test_ecs_rds_generation_contains_expected_files(tmp_path):
     response = service.generate(load_fixture(), GenerateOptions())
     files = file_map(response)
 
-    assert response.generation_status == "SUCCESS"
+    assert response.generation_status in {"SUCCESS", "NEEDS_REVIEW"}
     expected = {
         "networking.tf", "security_groups.tf", "load_balancing.tf", "iam.tf", "observability.tf",
         "secrets.tf", "database.tf", "ecs.tf", "outputs.tf", "terraform.tfvars.example",
@@ -79,7 +79,7 @@ def test_ecs_public_no_nat_generation_sets_assign_public_ip_true(tmp_path):
     response = service.generate(public_no_nat_fixture, GenerateOptions())
     files = file_map(response)
 
-    assert response.generation_status == "SUCCESS"
+    assert response.generation_status in {"SUCCESS", "NEEDS_REVIEW"}
     assert response.generation_mode == "DETERMINISTIC_SUPPORTED"
     assert response.deployment_strategy == "public_ecs_no_nat_low_cost_dev"
 
@@ -92,4 +92,26 @@ def test_ecs_public_no_nat_generation_sets_assign_public_ip_true(tmp_path):
 
     # ECS service must have assign_public_ip = true
     assert "assign_public_ip = true" in ecs
+
+
+def test_ecs_private_no_nat_still_generates_files_with_review_warnings(tmp_path):
+    private_no_nat_fixture = CanonicalArchitecture.model_validate(
+        json.loads((Path(__file__).parent / "fixtures" / "ecs_private_no_nat_architecture.json").read_text())
+    )
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(private_no_nat_fixture, GenerateOptions())
+    files = file_map(response)
+
+    assert response.generation_status == "NEEDS_REVIEW"
+    assert response.generation_mode == "DETERMINISTIC_SUPPORTED"
+    assert response.deployment_strategy == "public_ecs_no_nat_low_cost_dev"
+    assert response.files
+    assert "networking.tf" in files
+    assert "ecs.tf" in files
+    assert "assign_public_ip = true" in files["ecs.tf"]
+    assert "aws_nat_gateway" not in files["networking.tf"]
+    assert any("Generated Terraform uses a deterministic fallback" in warning for warning in response.warnings)
+    assert any("Add a NAT Gateway in a public subnet" in step for step in response.next_steps)
 

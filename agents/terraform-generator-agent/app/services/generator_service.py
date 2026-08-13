@@ -147,16 +147,7 @@ class TerraformGeneratorService:
                 options, draft_fallback_enabled, llm,
             )
 
-        # 5. Check for NEEDS_INPUT from reasoning (dangerous configurations)
-        if reasoning.reasoning_status == "NEEDS_INPUT":
-            return self._needs_input_response(
-                metadata_base,
-                reasoning,
-                arch_validation,
-                detected_pattern_id,
-            )
-
-        # 6. Build enriched plan (reasoning overrides ecs_subnets, assign_public_ip, etc.)
+        # 5. Build enriched plan (reasoning overrides ecs_subnets, assign_public_ip, etc.)
         if arch_validation.errors:
             return GenerationResponse(
                 generation_status="NEEDS_INPUT",
@@ -187,7 +178,7 @@ class TerraformGeneratorService:
                 "Plan building failed — review architecture and reasoning output.",
             )
 
-        # 7. If plan builder returned UNSUPPORTED (e.g. private ECS + no NAT)
+        # 6. If plan builder returned UNSUPPORTED (e.g. no deterministic fallback exists)
         if plan.generation_mode == "UNSUPPORTED":
             return self._unsupported(
                 metadata_base,
@@ -201,7 +192,7 @@ class TerraformGeneratorService:
                 deployment_strategy=plan.deployment_strategy,
             )
 
-        # 8. Render deterministic files
+        # 7. Render deterministic files
         try:
             files = self._render_plan(plan)
             self.writer.write(files)
@@ -211,14 +202,14 @@ class TerraformGeneratorService:
                 metadata_base, reasoning, f"Template rendering failed: {type(exc).__name__}: {exc}",
             )
 
-        # 9. Safety policy check
+        # 8. Safety policy check
         artifact_list = [FileArtifact(path=f["path"], content=f["content"]) for f in files]
         safety_result = self.safety_checker.check(artifact_list, plan)
 
-        # 10. Build file artifacts for response
+        # 9. Build file artifacts for response
         file_artifacts = [FileArtifact(path=f["path"], content=f["content"]) for f in files]
 
-        # 11. Reviewer (optional, LLM-only)
+        # 10. Reviewer (optional, LLM-only)
         reviewer_llm = llm if reviewer_enabled else None
         review_result = self.reviewer_agent.review(
             architecture=normalized,
@@ -229,14 +220,18 @@ class TerraformGeneratorService:
             llm=reviewer_llm,
         )
 
-        # 12. Determine final trust and status
+        # 11. Determine final trust and status
         has_critical_safety = safety_result.has_critical
         has_critical_review = bool(review_result.critical_issues)
-        trusted = not has_critical_safety and not has_critical_review
-        requires_human_review = has_critical_safety or has_critical_review
+        has_reasoning_blockers = reasoning.reasoning_status == "NEEDS_INPUT"
+        trusted = not has_critical_safety and not has_critical_review and not has_reasoning_blockers
+        requires_human_review = has_critical_safety or has_critical_review or has_reasoning_blockers
         generation_status = "NEEDS_REVIEW" if requires_human_review else "SUCCESS"
 
         metadata_base["generated_file_count"] = len(files)
+        next_steps = plan.next_steps
+        if reasoning.required_inputs:
+            next_steps = _merge_unique_lists(reasoning.required_inputs, next_steps)
 
         return GenerationResponse(
             generation_status=generation_status,
@@ -255,8 +250,12 @@ class TerraformGeneratorService:
             safety_findings=[f.model_dump() for f in safety_result.findings],
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
-            next_steps=plan.next_steps,
+            next_steps=next_steps,
             metadata=GenerationMetadata(**metadata_base),
+            error=(
+                "Generated Terraform with warnings. Review runtime risks and apply the recommended networking fixes before deployment."
+                if has_reasoning_blockers else None
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -403,31 +402,6 @@ class TerraformGeneratorService:
             error=error,
         )
 
-    def _needs_input_response(
-        self,
-        metadata_base: dict,
-        reasoning,
-        arch_validation,
-        pattern_id: str | None,
-    ) -> GenerationResponse:
-        return GenerationResponse(
-            generation_status="NEEDS_INPUT",
-            generation_mode="DETERMINISTIC_SUPPORTED",
-            trusted=False,
-            requires_human_review=True,
-            pattern_id=pattern_id,
-            supported_resources=sorted(set(arch_validation.supported_resources)),
-            warnings=[*arch_validation.warnings, *reasoning.warnings],
-            runtime_risks=reasoning.runtime_risks,
-            reasoning=reasoning.model_dump(),
-            next_steps=reasoning.required_inputs or [
-                "Review the networking configuration and add NAT Gateway or VPC endpoints for private ECS.",
-            ],
-            metadata=GenerationMetadata(**metadata_base),
-            error="Reasoning identified a dangerous or incomplete architecture configuration. "
-                  "Review runtime_risks and required_inputs before generating.",
-        )
-
     def _failed(
         self,
         metadata_base: dict,
@@ -445,6 +419,17 @@ class TerraformGeneratorService:
             metadata=GenerationMetadata(**metadata_base),
             error=error,
         )
+
+
+def _merge_unique_lists(*lists: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for items in lists:
+        for item in items:
+            if item not in seen:
+                seen.add(item)
+                merged.append(item)
+    return merged
 
 
 # ---------------------------------------------------------------------------
