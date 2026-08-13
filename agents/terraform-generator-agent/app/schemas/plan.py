@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.planning.terraform_resource_plan_schema import TerraformResourcePlan
+
 
 class TerraformGenerationPlan(BaseModel):
     pattern_id: str
@@ -26,6 +28,7 @@ class TerraformGenerationPlan(BaseModel):
     supported_resources: list[str] = Field(default_factory=list)
     unsupported_resources: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    terraform_resource_plan: TerraformResourcePlan | None = None
 
     def renderer_context(self) -> dict[str, Any]:
         ctx = {
@@ -44,6 +47,7 @@ class TerraformGenerationPlan(BaseModel):
             "warnings": self.warnings,
             "runtime_risks": self.runtime_risks,
             "validation_assertions": self.validation_assertions,
+            "terraform_resource_plan": self.terraform_resource_plan.model_dump() if self.terraform_resource_plan else None,
             **self.resources,
         }
         # Ensure assign_public_ip has a safe default if not set by plan builder

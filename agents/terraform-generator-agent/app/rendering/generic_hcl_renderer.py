@@ -123,10 +123,14 @@ class GenericHCLRenderer:
     def _render_readme(self, plan: TerraformResourcePlan) -> str:
         warnings = "\n".join(f"- {w}" for w in plan.warnings) or "- Review generated Terraform carefully."
         missing = "\n".join(f"- {i}" for i in plan.missing_inputs) or "- None"
+        intro = (
+            "Trusted deterministic Terraform generated from a Nimbus pattern module."
+            if plan.trusted_pattern
+            else "Draft Terraform generated from an LLM-planned resource plan. This architecture is not yet covered by a trusted Nimbus deterministic pattern."
+        )
         return (
             "# README.generated.md\n\n"
-            "Draft Terraform generated from an LLM-planned resource plan. "
-            "This architecture is not yet covered by a trusted Nimbus deterministic pattern.\n\n"
+            f"{intro}\n\n"
             "## Review carefully\n"
             f"{warnings}\n\n"
             "## Secret handling warning\n"

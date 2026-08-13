@@ -142,7 +142,10 @@ class TerraformGeneratorService:
             )
 
         # 5. Build enriched plan (reasoning overrides ecs_subnets, assign_public_ip, etc.)
-        if arch_validation.errors:
+        if arch_validation.errors and detected_pattern_id in {
+            "ecs_fargate_alb_rds_dev",
+            "static_site_s3_cloudfront_route53_https",
+        }:
             return GenerationResponse(
                 generation_status="NEEDS_INPUT",
                 generation_mode="DETERMINISTIC_SUPPORTED",
@@ -209,6 +212,7 @@ class TerraformGeneratorService:
 
         # 9. Build file artifacts for response
         file_artifacts = [FileArtifact(path=f["path"], content=f["content"]) for f in files]
+        validation_result = self._validate_generated_artifacts(file_artifacts)
 
         # 10. Reviewer (optional, LLM-only)
         reviewer_llm = llm if reviewer_enabled else None
@@ -216,7 +220,7 @@ class TerraformGeneratorService:
             architecture=normalized,
             plan=plan,
             files=file_artifacts,
-            validation_result=None,  # No validation at this stage; filled in by generate-and-validate
+            validation_result=validation_result,
             safety_findings=safety_result,
             llm=reviewer_llm,
         )
@@ -225,9 +229,10 @@ class TerraformGeneratorService:
         has_critical_safety = safety_result.has_critical
         has_critical_review = bool(review_result.critical_issues)
         has_reasoning_blockers = reasoning.reasoning_status == "NEEDS_INPUT"
-        trusted = not has_critical_safety and not has_critical_review and not has_reasoning_blockers
-        requires_human_review = has_critical_safety or has_critical_review or has_reasoning_blockers
-        generation_status = "NEEDS_REVIEW" if requires_human_review else "SUCCESS"
+        has_failed_validation = validation_result.validation_status == "FAILED"
+        trusted = not has_critical_safety and not has_critical_review and not has_reasoning_blockers and not has_failed_validation
+        requires_human_review = has_critical_safety or has_critical_review or has_reasoning_blockers or has_failed_validation
+        generation_status = "FAILED" if has_failed_validation else ("NEEDS_REVIEW" if requires_human_review else "SUCCESS")
 
         metadata_base["generated_file_count"] = len(files)
         next_steps = plan.next_steps
@@ -250,13 +255,15 @@ class TerraformGeneratorService:
             warnings=[*plan.warnings, *arch_validation.warnings],
             runtime_risks=plan.runtime_risks,
             validation_assertions=plan.validation_assertions,
-            validation=self._validate_generated_artifacts(file_artifacts).model_dump(),
+            validation=validation_result.model_dump(),
             safety_findings=[f.model_dump() for f in safety_result.findings],
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
             next_steps=next_steps,
             metadata=GenerationMetadata(**metadata_base),
             error=(
+                "Generated Terraform failed validation. Review validation errors before treating this pattern as trusted."
+                if has_failed_validation else
                 "Generated Terraform with warnings. Review runtime risks and apply the recommended networking fixes before deployment."
                 if has_reasoning_blockers else None
             ),
@@ -275,6 +282,8 @@ class TerraformGeneratorService:
     def _render_plan(self, plan: TerraformGenerationPlan) -> list[dict[str, str]]:
         if plan.pattern_id == "static_site_s3_cloudfront_route53_https":
             files_by_path = self._render_static_site(plan)
+        elif plan.terraform_resource_plan is not None:
+            return self.generic_renderer.render(plan.terraform_resource_plan)
         else:
             context = plan.renderer_context()
             files_by_path = self.common_renderer.render_files(context)

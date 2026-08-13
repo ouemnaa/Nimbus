@@ -220,6 +220,23 @@ def _deterministic_static_site_reasoning() -> TerraformReasoningResult:
     )
 
 
+def _deterministic_generic_pattern_reasoning(pattern_id: str) -> TerraformReasoningResult:
+    return TerraformReasoningResult(
+        reasoning_status="SUCCESS",
+        pattern_id=pattern_id,
+        deployment_strategy=pattern_id,
+        terraform_strategy_summary=(
+            "Nimbus matched this architecture to a trusted deterministic pattern and preserved the selected AWS services while adding only required Terraform wiring resources."
+        ),
+        validation_assertions=[
+            "Generated Terraform must preserve the architecture's selected provider services.",
+            "Derived resources must exist only for required wiring, IAM, observability, networking, or secret handling.",
+            "Generated Terraform must pass terraform fmt, init -backend=false, and validate when Terraform CLI is available.",
+        ],
+        warnings=[],
+    )
+
+
 # ---------------------------------------------------------------------------
 # LLM reasoning parser
 # ---------------------------------------------------------------------------
@@ -299,6 +316,14 @@ class TerraformReasoningAgent:
             return _deterministic_ecs_reasoning(architecture)
         if pattern_id == "static_site_s3_cloudfront_route53_https":
             return _deterministic_static_site_reasoning()
+        if pattern_id in {
+            "serverless_http_api_lambda_dynamodb",
+            "websocket_lobby_lambda_dynamodb",
+            "async_processing_s3_sqs_worker",
+            "secure_internal_dashboard_ecs_rds_cognito",
+            "usage_analytics_ingestion_pipeline",
+        }:
+            return _deterministic_generic_pattern_reasoning(pattern_id)
         return TerraformReasoningResult(
             reasoning_status="UNSUPPORTED",
             pattern_id=pattern_id,

@@ -119,6 +119,7 @@ class DerivedResourceSpec(BaseModel):
 class TerraformResourcePlan(BaseModel):
     plan_version: str = "1.0.0"
     draft_pattern_name: str
+    trusted_pattern: bool = False
     cloud_provider: str
     terraform_version: str = ">= 1.5.0"
     required_providers: list[ProviderRequirement] = Field(default_factory=list)
