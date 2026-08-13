@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { listProjects } from "@/services/architectureService";
+import { listProjects, deleteProject } from "@/services/architectureService";
 import type { ArchitectureStatus, BackendProject } from "@/types/architecture";
 import { formatDate, formatStatus } from "@/utils/format";
 import { motion } from "framer-motion";
@@ -18,6 +18,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 type ProjectFilter =
@@ -74,6 +75,7 @@ export default function ProjectsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<ProjectFilter>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -105,6 +107,21 @@ export default function ProjectsPage() {
       isMounted = false;
     };
   }, []);
+
+  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (deletingId) return;
+    setDeletingId(projectId);
+    try {
+      await deleteProject(projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    } catch {
+      // silently fail — the item stays in the list
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const filteredProjects = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -322,6 +339,19 @@ export default function ProjectsPage() {
                             Open project
                           </p>
                         </div>
+
+                        <button
+                          onClick={e => handleDelete(e, project.id)}
+                          disabled={deletingId === project.id}
+                          className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all duration-200 disabled:opacity-50"
+                          title="Delete project"
+                        >
+                          {deletingId === project.id ? (
+                            <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
                     </Card>
                   </Link>

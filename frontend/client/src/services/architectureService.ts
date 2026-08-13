@@ -72,6 +72,23 @@ export async function listProjects(): Promise<BackendProject[]> {
   return requestJson<BackendProject[]>("/api/projects");
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${NIMBUS_BACKEND_URL}/api/projects/${encodeURIComponent(projectId)}`,
+      { method: "DELETE" }
+    );
+  } catch {
+    throw new Error(
+      `Could not reach the Nimbus backend. Make sure it is running on ${NIMBUS_BACKEND_URL}.`
+    );
+  }
+  if (!response.ok && response.status !== 204) {
+    throw new Error("Could not delete project.");
+  }
+}
+
 export async function getProjectWorkspace(
   projectId: string
 ): Promise<ProjectWorkspaceResponse> {
