@@ -13,3 +13,9 @@ def write_artifacts(files: list[dict[str, str]], output_dir: str, debug: bool = 
             raise ValueError("Artifact path escapes the generated artifacts directory.")
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(artifact["content"], encoding="utf-8")
+
+
+def ensure_directory(path: str) -> str:
+    root = Path(path).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return str(root)

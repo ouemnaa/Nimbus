@@ -188,7 +188,14 @@ class TerraformGeneratorService:
         # 7. Render deterministic files
         try:
             files = self._render_plan(plan)
-            self.writer.write(files)
+            local_output_dir = self.writer.write(
+                files,
+                project_id=options.project_id,
+                architecture_id=normalized.architecture_id,
+                architecture_version_id=options.architecture_version_id,
+                architecture_version=normalized.architecture_version,
+            )
+            metadata_base["local_output_dir"] = local_output_dir
         except Exception as exc:
             logger.exception("Terraform template rendering failed")
             return self._failed(
@@ -358,6 +365,13 @@ class TerraformGeneratorService:
                 FileArtifact(path=validate_artifact_path(f["path"]), content=f["content"])
                 for f in rendered_files
             ]
+            metadata_base["local_output_dir"] = self.writer.write(
+                rendered_files,
+                project_id=options.project_id,
+                architecture_id=normalized.architecture_id,
+                architecture_version_id=options.architecture_version_id,
+                architecture_version=normalized.architecture_version,
+            )
         except ValueError as exc:
             return GenerationResponse(
                 generation_status="FAILED",

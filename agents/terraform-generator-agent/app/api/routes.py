@@ -42,6 +42,10 @@ async def generate_terraform(payload: dict[str, Any]) -> dict[str, Any]:
     """
     try:
         request = _request_from_payload(payload)
+        request.options = request.options.model_copy(update={
+            "project_id": request.project_id or request.options.project_id,
+            "architecture_version_id": request.architecture_version_id or request.options.architecture_version_id,
+        })
         architecture = request.canonical_architecture()
         response = await run_in_threadpool(_generator.generate, architecture, request.options)
         return response.model_dump(mode="json")
@@ -70,6 +74,10 @@ async def generate_and_validate(payload: dict[str, Any]) -> dict[str, Any]:
     - enable_reasoning, enable_reviewer, enable_llm_draft_fallback: as per /generate.
     """
     request = _request_from_payload(payload)
+    request.options = request.options.model_copy(update={
+        "project_id": request.project_id or request.options.project_id,
+        "architecture_version_id": request.architecture_version_id or request.options.architecture_version_id,
+    })
     architecture = request.canonical_architecture()
     generation = await run_in_threadpool(_generator.generate, architecture, request.options)
     validate_options_payload = request.options.model_extra or {}

@@ -25,6 +25,7 @@ class GenerationMetadata(BaseModel):
     llm_provider: str
     architecture_id: str
     architecture_version: str
+    local_output_dir: str | None = None
     reasoning_enabled: bool = False
     reviewer_enabled: bool = False
     draft_fallback_enabled: bool = False

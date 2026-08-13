@@ -69,6 +69,8 @@ class CanonicalArchitecture(BaseModel):
 class GenerateOptions(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
     project_name: str | None = None
+    project_id: str | None = None
+    architecture_version_id: str | None = None
     environment: str | None = None
     aws_region: str | None = None
     allow_repairs: bool = True
