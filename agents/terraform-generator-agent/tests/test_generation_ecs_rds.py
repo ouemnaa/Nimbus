@@ -1,9 +1,13 @@
 import json
+import shutil
 from pathlib import Path
+
+import pytest
 
 from app.core.config import Settings
 from app.schemas.architecture import CanonicalArchitecture, GenerateOptions
 from app.services.generator_service import TerraformGeneratorService
+from app.services.validator_service import TerraformValidatorService
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ecs_rds_architecture.json"
@@ -154,6 +158,10 @@ def test_ecs_name_prefix_keeps_alb_name_within_aws_limit(tmp_path):
     locals_tf = file_map(response)["locals.tf"]
     load_balancing_tf = file_map(response)["load_balancing.tf"]
 
+    assert 'environment_slug_raw   = replace(lower(var.environment), "/[^a-z0-9-]/", "-")' in locals_tf
+    assert 'environment_slug       = trim(replace(local.environment_slug_raw, "/-+/", "-"), "-")' in locals_tf
+    assert 'project_slug_raw       = replace(lower(var.project_name), "/[^a-z0-9-]/", "-")' in locals_tf
+    assert 'project_slug           = trim(replace(local.project_slug_raw, "/-+/", "-"), "-")' in locals_tf
     assert 'name_prefix          = substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)' in locals_tf
     assert 'alb_name             = substr("${local.name_prefix}-alb", 0, 32)' in locals_tf
     assert "name               = local.alb_name" in load_balancing_tf
@@ -224,4 +232,28 @@ def test_ecs_service_depends_on_listener_and_secret_policy(tmp_path):
     assert "aws_iam_role_policy_attachment.ecs_task_execution_role_managed" in ecs_tf
     assert "aws_iam_role_policy.ecs_task_execution_role_secrets" in ecs_tf
     assert "aws_lb_listener.application_load_balancer_listener" in ecs_tf
+
+
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="Terraform CLI is not installed")
+def test_generated_ecs_terraform_validate_catches_unknown_functions(tmp_path):
+    service = TerraformGeneratorService(
+        Settings(generated_artifacts_dir=str(tmp_path / "generated"), llm_provider="none")
+    )
+    response = service.generate(
+        load_fixture(),
+        GenerateOptions(project_name="Nimbus Project", environment="development"),
+    )
+    locals_tf = file_map(response)["locals.tf"]
+    validator = TerraformValidatorService(
+        Settings(
+            generated_artifacts_dir=str(tmp_path / "generated"),
+            validation_enable_terraform_init=False,
+        )
+    )
+
+    assert "regexreplace(" not in locals_tf
+
+    result = validator.validate(response.files)
+
+    assert result.validation_status == "PASSED"
 

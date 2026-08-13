@@ -779,12 +779,12 @@ def _ensure_capability_coverage(
         default={"kind": "literal", "value": "development"},
         required=True,
     )
-    ensure_local("project_slug_raw", {"kind": "expr", "value": 'regexreplace(lower(var.project_name), "[^a-z0-9-]", "-")'})
-    ensure_local("project_slug", {"kind": "expr", "value": 'trim(regexreplace(local.project_slug_raw, "-+", "-"), "-")'})
-    ensure_local("environment_slug_raw", {"kind": "expr", "value": 'regexreplace(lower(var.environment), "[^a-z0-9-]", "-")'})
-    ensure_local("environment_slug", {"kind": "expr", "value": 'trim(regexreplace(local.environment_slug_raw, "-+", "-"), "-")'})
-    ensure_local("short_project_slug", {"kind": "expr", "value": 'substr(local.project_slug != "" ? local.project_slug : "nimbus", 0, 16)'})
+    ensure_local("environment_slug_raw", {"kind": "expr", "value": 'replace(lower(var.environment), "/[^a-z0-9-]/", "-")'})
+    ensure_local("environment_slug", {"kind": "expr", "value": 'trim(replace(local.environment_slug_raw, "/-+/", "-"), "-")'})
+    ensure_local("project_slug_raw", {"kind": "expr", "value": 'replace(lower(var.project_name), "/[^a-z0-9-]/", "-")'})
+    ensure_local("project_slug", {"kind": "expr", "value": 'trim(replace(local.project_slug_raw, "/-+/", "-"), "-")'})
     ensure_local("short_environment_slug", {"kind": "expr", "value": 'substr(local.environment_slug != "" ? local.environment_slug : "dev", 0, 7)'})
+    ensure_local("short_project_slug", {"kind": "expr", "value": 'substr(local.project_slug != "" ? local.project_slug : "nimbus", 0, 16)'})
     ensure_local("name_prefix", {"kind": "expr", "value": 'substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)'})
     add_data_source({"terraform_type": "aws_caller_identity", "name": "current", "file": "providers.tf", "body": {}})
 
