@@ -134,6 +134,20 @@ export async function discardDraftVersion(
   );
 }
 
+export async function updateArchitectureStatus(
+  projectId: string,
+  versionId: string,
+  status: string
+): Promise<void> {
+  await requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }
+  );
+}
+
 export async function generateTerraform(
   projectId: string
 ): Promise<TerraformGeneration> {

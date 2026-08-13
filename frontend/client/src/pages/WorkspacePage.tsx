@@ -16,6 +16,7 @@ import {
   getLatestTerraformGeneration,
   getProjectWorkspace,
   sendProjectMessage,
+  updateArchitectureStatus,
 } from "@/services/architectureService";
 import type {
   AnalyzeArchitectureResponse,
@@ -133,6 +134,7 @@ export default function WorkspacePage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [draftVersion, setDraftVersion] =
     useState<BackendArchitectureVersion | null>(null);
+  const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
   const [terraformGeneration, setTerraformGeneration] =
     useState<TerraformGeneration | null>(null);
   const [isGeneratingTerraform, setIsGeneratingTerraform] = useState(false);
@@ -174,6 +176,7 @@ export default function WorkspacePage() {
         const loadedArchitecture = prepareWorkspaceArchitecture(workspace);
         updateArchitecture(loadedArchitecture);
         updateStatus(loadedArchitecture.status);
+        setCurrentVersionId(workspace.currentVersion?.id ?? null);
         setMessages(
           workspace.messages.map(message => ({
             role: message.role,
@@ -453,7 +456,16 @@ export default function WorkspacePage() {
           <ArchitectureArtifact
             architecture={architecture}
             status={status}
-            onStatusChange={updateStatus}
+            onStatusChange={async (newStatus) => {
+              updateStatus(newStatus);
+              if (projectId && currentVersionId) {
+                try {
+                  await updateArchitectureStatus(projectId, currentVersionId, newStatus);
+                } catch {
+                  // status already updated locally; backend failure is non-blocking
+                }
+              }
+            }}
             onArchitectureUpdate={updateArchitecture}
             metadata={storedResponse?.metadata}
             terraformGeneration={terraformGeneration}

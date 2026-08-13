@@ -15,6 +15,14 @@ class AwsCapabilityDefinition:
 
 class AwsCapabilityCatalog:
     def __init__(self) -> None:
+        self.aliases = {
+            "aws_mediaconvert_queue": "aws_media_convert_queue"
+        }
+        self.property_mappings = {
+            "aws_media_convert_queue": {
+                "pricing_tier": "pricing_plan"
+            }
+        }
         self._definitions: dict[CapabilityType, AwsCapabilityDefinition] = {
             "PUBLIC_HTTP_ENTRYPOINT": AwsCapabilityDefinition(
                 capability_type="PUBLIC_HTTP_ENTRYPOINT",
@@ -43,8 +51,13 @@ class AwsCapabilityCatalog:
             "OBJECT_STORAGE": AwsCapabilityDefinition(
                 capability_type="OBJECT_STORAGE",
                 service_options=["S3"],
-                terraform_primitives=["aws_s3_bucket", "aws_s3_bucket_public_access_block"],
-                notes="Default to private buckets with public access blocked.",
+                terraform_primitives=[
+                    "aws_s3_bucket",
+                    "aws_s3_bucket_public_access_block",
+                    "aws_s3_bucket_server_side_encryption_configuration",
+                    "aws_s3_bucket_notification",
+                ],
+                notes="Default to private buckets with public access blocked and AES256 encryption. Use aws_s3_bucket_notification + aws_lambda_permission for S3-to-Lambda triggers.",
             ),
             "RELATIONAL_DATABASE": AwsCapabilityDefinition(
                 capability_type="RELATIONAL_DATABASE",

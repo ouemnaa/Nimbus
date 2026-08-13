@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from app.api.dependencies import get_project_service, get_version_service
 from app.schemas.architecture_version import ArchitectureVersionResponse
@@ -9,6 +10,10 @@ from app.utils.object_id import parse_object_id
 
 
 router = APIRouter(prefix="/projects/{project_id}/versions", tags=["versions"])
+
+
+class UpdateStatusRequest(BaseModel):
+    status: str
 
 
 @router.get("", response_model=list[ArchitectureVersionResponse])
@@ -35,6 +40,19 @@ async def get_architecture_version(
 
         raise NotFoundError("Architecture version")
     return version
+
+
+@router.patch("/{version_id}/status", response_model=ArchitectureVersionResponse)
+async def update_version_status(
+    project_id: str,
+    version_id: str,
+    request: UpdateStatusRequest,
+    version_service: VersionService = Depends(get_version_service),
+) -> ArchitectureVersionResponse:
+    return await version_service.update_status(
+        parse_object_id(version_id, "version_id"),
+        request.status,
+    )
 
 
 @router.post("/{version_id}/accept", response_model=ProjectWorkspaceResponse)

@@ -75,6 +75,12 @@ def _prompt(
         "instructions": "Generate TerraformResourcePlan JSON only. Produce concrete Terraform resources, not .tf files.",
         "reasoning_summary": reasoning.terraform_strategy_summary,
         "unsupported_reasons": reasoning.unsupported_reasons,
+        "provider_type_aliases": getattr(catalog, "aliases", {}),
+        "provider_property_mappings": getattr(catalog, "property_mappings", {}),
+        "provider_type_alias_rules": [
+            "Use canonical provider type names from provider_type_aliases. For example, use 'aws_media_convert_queue' not 'aws_mediaconvert_queue'.",
+            "Use canonical argument names from provider_property_mappings. For example, use 'pricing_plan' not 'pricing_tier' for aws_media_convert_queue.",
+        ],
     }
     return SYSTEM_PROMPT + "\n\n" + json.dumps(payload, indent=2)
 
@@ -97,6 +103,27 @@ def _repair_prompt(
         "coverage_findings": [item.model_dump(mode="json") for item in errors],
     }
     return SYSTEM_PROMPT + "\n\n" + json.dumps(payload, indent=2)
+
+
+def _validation_repair_prompt(
+    architecture: NormalizedArchitecture,
+    reasoning: TerraformReasoningResult,
+    capability_plan: InfrastructureCapabilityPlan,
+    plan: TerraformResourcePlan,
+    errors: list[str],
+    catalog: AwsCapabilityCatalog,
+) -> str:
+    payload = {
+        "instructions": "The generated HCL files failed Terraform provider/schema validation. Correct the TerraformResourcePlan JSON to fix the validation errors. Return ONLY the corrected TerraformResourcePlan JSON.",
+        "architecture": asdict(architecture) if is_dataclass(architecture) else {},
+        "infrastructure_capability_plan": capability_plan.model_dump(mode="json"),
+        "aws_capability_catalog": catalog.prompt_payload(),
+        "reasoning_summary": reasoning.terraform_strategy_summary,
+        "previous_plan": plan.model_dump(mode="json"),
+        "terraform_validation_errors": errors,
+    }
+    return SYSTEM_PROMPT + "\n\n" + json.dumps(payload, indent=2)
+
 
 
 class LLMTerraformPlanner:
@@ -152,6 +179,27 @@ class LLMTerraformPlanner:
             repaired_plan.validation_assertions.extend([item.expected for item in repaired_errors])
         return repaired_plan, repaired_errors
 
+    def repair_validation_errors(
+        self,
+        architecture: NormalizedArchitecture,
+        reasoning: TerraformReasoningResult,
+        llm: LLMProvider,
+        plan: TerraformResourcePlan,
+        errors: list[str],
+    ) -> TerraformResourcePlan:
+        capability_plan = self.capability_extractor.extract(architecture)
+        prompt_text = _validation_repair_prompt(
+            architecture, reasoning, capability_plan, plan, errors, self.catalog
+        )
+        repaired_raw = run_awaitable(llm.complete(prompt_text))
+        logger.info(
+            "llm_validation_repair_response_received=%s raw_response_length=%s",
+            True,
+            len(repaired_raw or ""),
+        )
+        repaired_plan = self._parse_and_normalize(repaired_raw, architecture, capability_plan)
+        return repaired_plan
+
     def _parse_and_normalize(
         self,
         raw: str,
@@ -180,6 +228,27 @@ def _extract_json_text(raw: str) -> str:
     if start != -1 and end != -1 and end > start:
         return text[start:end + 1]
     return text
+
+
+def _resolve_value_to_tf(val: Any, architecture: NormalizedArchitecture) -> tuple[str, Any]:
+    if not isinstance(val, str):
+        return "literal", val
+    matched = architecture.resource(val)
+    if not matched:
+        matched = next((r for r in architecture.resources if r.id == val or r.name == val), None)
+    if matched:
+        lbl = _safe_label(matched.name)
+        if matched.provider_type == "aws_s3_bucket":
+            return "expr", f"aws_s3_bucket.{lbl}.id"
+        if matched.provider_type == "aws_dynamodb_table":
+            return "expr", f"aws_dynamodb_table.{lbl}.name"
+        if matched.provider_type == "aws_iam_role":
+            return "expr", f"aws_iam_role.{lbl}.arn"
+        if matched.provider_type == "aws_sqs_queue":
+            return "expr", f"aws_sqs_queue.{lbl}.id"
+        if matched.provider_type in {"aws_media_convert_queue", "aws_mediaconvert_queue"}:
+            return "expr", f"aws_media_convert_queue.{lbl}.id"
+    return "literal", val
 
 
 def _normalize_plan_data(
@@ -253,6 +322,13 @@ def _normalize_plan_data(
                 continue
             fixed = dict(item)
             fixed.setdefault("terraform_type", fixed.get("resource_type") or fixed.get("type"))
+            
+            # Apply provider type alias mapping
+            tf_type = str(fixed.get("terraform_type", ""))
+            if hasattr(catalog, "aliases") and tf_type in catalog.aliases:
+                tf_type = catalog.aliases[tf_type]
+                fixed["terraform_type"] = tf_type
+                
             fixed.setdefault("name", fixed.get("resource_name") or fixed.get("logical_name") or fixed.get("label"))
             if "architecture_resource_id" not in fixed and "architecture_id" in fixed:
                 fixed["architecture_resource_id"] = fixed["architecture_id"]
@@ -260,10 +336,44 @@ def _normalize_plan_data(
                 str(fixed.get("terraform_type", "")),
                 str(fixed.get("file", "")),
             )
+            
+            # Coerce HCL values
             if isinstance(fixed.get("body"), dict):
-                fixed["body"] = {k: _coerce_hcl_value(v) for k, v in fixed["body"].items()}
+                body = {k: _coerce_hcl_value(v) for k, v in fixed["body"].items()}
             else:
-                fixed["body"] = {}
+                body = {}
+                
+            # Apply property/argument mapping
+            if hasattr(catalog, "property_mappings") and tf_type in catalog.property_mappings:
+                for old_prop, new_prop in catalog.property_mappings[tf_type].items():
+                    if old_prop in body:
+                        body[new_prop] = body.pop(old_prop)
+                        
+            # Hyphenate S3 bucket names if literal
+            if tf_type == "aws_s3_bucket":
+                bucket_val = body.get("bucket")
+                if bucket_val and bucket_val.get("kind") == "literal" and isinstance(bucket_val.get("value"), str):
+                    bucket_val["value"] = bucket_val["value"].replace("_", "-")
+            
+            # Clean up invalid integration_method on aws_lambda_permission
+            if tf_type == "aws_lambda_permission" and "integration_method" in body:
+                body.pop("integration_method")
+                
+            # Resolve lambda environment variables literal values to TF references
+            if tf_type == "aws_lambda_function":
+                env_block = body.get("environment")
+                if env_block and env_block.get("kind") == "block" and env_block.get("type") == "environment":
+                    vars_obj = env_block.get("body", {}).get("variables", {})
+                    if vars_obj and vars_obj.get("kind") == "object":
+                        items = vars_obj.get("items", {})
+                        for k, v in list(items.items()):
+                            if v.get("kind") == "literal":
+                                raw_val = v.get("value")
+                                kind, resolved = _resolve_value_to_tf(raw_val, architecture)
+                                items[k] = {"kind": kind, "value": resolved}
+                                
+            fixed["body"] = body
+            
             if (
                 fixed.get("terraform_type") == "aws_apigatewayv2_integration"
                 and getattr(fixed["body"].get("integration_type"), "value", None) == "AWS_PROXY"
@@ -387,6 +497,8 @@ def _default_file_for_resource_type(terraform_type: str, requested_file: str) ->
     if terraform_type.startswith("aws_s3"):
         return "storage.tf"
     if terraform_type.startswith("aws_sqs") or terraform_type.startswith("aws_dynamodb"):
+        return "compute.tf"
+    if terraform_type.startswith("aws_media_convert") or terraform_type.startswith("aws_mediaconvert"):
         return "compute.tf"
     return "compute.tf"
 
@@ -726,20 +838,29 @@ def _ensure_capability_coverage(
             "timeout": {"kind": "literal", "value": int(lambda_resource.configuration.get("timeout", 29))},
             "source_code_hash": {"kind": "expr", "value": f"filebase64sha256(var.{package_var})"},
         }
+        # Build environment variables block — always emit ENVIRONMENT, plus any
+        # resource-ARN env vars sourced from the configuration, plus secret ARN if applicable.
+        env_items: dict = {"ENVIRONMENT": {"kind": "expr", "value": "var.environment"}}
         if secret_resources:
-            lambda_body["environment"] = {
-                "kind": "block",
-                "type": "environment",
-                "body": {
-                    "variables": {
-                        "kind": "object",
-                        "items": {
-                            "ENVIRONMENT": {"kind": "expr", "value": "var.environment"},
-                            "SUPABASE_SECRET_ARN": {"kind": "expr", "value": "aws_secretsmanager_secret.supabase.arn"},
-                        },
-                    }
-                },
-            }
+            env_items["SUPABASE_SECRET_ARN"] = {"kind": "expr", "value": "aws_secretsmanager_secret.supabase.arn"}
+        # Inherit raw environment variables from architecture configuration
+        cfg_env = lambda_resource.configuration.get("environment") or {}
+        cfg_vars = cfg_env.get("variables") if isinstance(cfg_env, dict) else {}
+        if isinstance(cfg_vars, dict):
+            for k, v in cfg_vars.items():
+                if k not in env_items:
+                    kind, resolved = _resolve_value_to_tf(str(v) if not isinstance(v, str) else v, architecture)
+                    env_items[k] = {"kind": kind, "value": resolved}
+        lambda_body["environment"] = {
+            "kind": "block",
+            "type": "environment",
+            "body": {
+                "variables": {
+                    "kind": "object",
+                    "items": env_items,
+                }
+            },
+        }
         add_resource(
             {
                 "terraform_type": "aws_lambda_function",
@@ -830,6 +951,72 @@ def _ensure_capability_coverage(
             derive("aws_lambda_permission", f"allow_api_gateway_{route_name}", f"Allow API Gateway to invoke Lambda {label}.", "lambda.tf")
             validation_assertions.append(f"Relationship {relation.get('id') or relation_index} should render API Gateway route, integration, and Lambda permission.")
 
+        elif source.provider_type == "aws_s3_bucket" and target.provider_type == "aws_lambda_function":
+            # S3 upload trigger: grant S3 permission to invoke Lambda + notification
+            bucket_label = _safe_label(source.name)
+            lambda_label = _safe_label(target.name)
+            perm_name = f"allow_s3_{bucket_label}_{lambda_label}"
+            add_resource(
+                {
+                    "terraform_type": "aws_lambda_permission",
+                    "name": perm_name,
+                    "file": "lambda.tf",
+                    "body": {
+                        "statement_id": {"kind": "literal", "value": f"AllowS3Invoke{bucket_label.title().replace('_','')}"},
+                        "action": {"kind": "literal", "value": "lambda:InvokeFunction"},
+                        "function_name": {"kind": "expr", "value": f"aws_lambda_function.{lambda_label}.function_name"},
+                        "principal": {"kind": "literal", "value": "s3.amazonaws.com"},
+                        "source_arn": {"kind": "expr", "value": f"aws_s3_bucket.{bucket_label}.arn"},
+                    },
+                }
+            )
+            notif_name = f"{bucket_label}_trigger"
+            add_resource(
+                {
+                    "terraform_type": "aws_s3_bucket_notification",
+                    "name": notif_name,
+                    "file": "storage.tf",
+                    "body": {
+                        "bucket": {"kind": "expr", "value": f"aws_s3_bucket.{bucket_label}.id"},
+                        "lambda_function": {
+                            "kind": "list",
+                            "items": [
+                                {
+                                    "kind": "block",
+                                    "type": "lambda_function",
+                                    "body": {
+                                        "lambda_function_arn": {"kind": "expr", "value": f"aws_lambda_function.{lambda_label}.arn"},
+                                        "events": {"kind": "list", "items": [{"kind": "literal", "value": "s3:ObjectCreated:*"}]},
+                                    },
+                                }
+                            ],
+                        },
+                    },
+                    "depends_on": [f"aws_lambda_permission.{perm_name}"],
+                }
+            )
+            # Ensure Lambda has S3 read permission in its IAM role
+            s3_read_policy_name = f"lambda_{lambda_label}_s3_read"
+            add_resource(
+                {
+                    "terraform_type": "aws_iam_role_policy",
+                    "name": s3_read_policy_name,
+                    "file": "iam.tf",
+                    "body": {
+                        "name": {"kind": "expr", "value": f'format("%s-s3-read", local.name_prefix)'},
+                        "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.id"},
+                        "policy": {
+                            "kind": "expr",
+                            "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = ["s3:GetObject", "s3:ListBucket"], Resource = [aws_s3_bucket.{bucket_label}.arn, "${{aws_s3_bucket.{bucket_label}.arn}}/*"]}}]}})',
+                        },
+                    },
+                }
+            )
+            derive("aws_lambda_permission", perm_name, f"Allow S3 bucket {bucket_label} to invoke Lambda {lambda_label}.", "lambda.tf")
+            derive("aws_s3_bucket_notification", notif_name, f"S3 trigger on ObjectCreated for Lambda {lambda_label}.", "storage.tf")
+            derive("aws_iam_role_policy", s3_read_policy_name, f"Least-privilege S3 read access for Lambda {lambda_label}.", "iam.tf")
+            validation_assertions.append(f"S3 trigger relationship {relation.get('id') or relation_index} should render lambda permission, bucket notification, and IAM policy.")
+
     for bucket in s3_buckets:
         label = _safe_label(bucket.name)
         add_resource(
@@ -855,7 +1042,37 @@ def _ensure_capability_coverage(
                 },
             }
         )
-        ensure_mapping(bucket.id, bucket.provider_type, "RENDERED", [f"aws_s3_bucket.{label}"], "Rendered as S3 bucket with public access blocked.")
+        # Server-side encryption (AES256 by default)
+        add_resource(
+            {
+                "terraform_type": "aws_s3_bucket_server_side_encryption_configuration",
+                "name": label,
+                "file": "storage.tf",
+                "body": {
+                    "bucket": {"kind": "expr", "value": f"aws_s3_bucket.{label}.id"},
+                    "rule": {
+                        "kind": "list",
+                        "items": [
+                            {
+                                "kind": "block",
+                                "type": "rule",
+                                "body": {
+                                    "apply_server_side_encryption_by_default": {
+                                        "kind": "block",
+                                        "type": "apply_server_side_encryption_by_default",
+                                        "body": {
+                                            "sse_algorithm": {"kind": "literal", "value": "AES256"},
+                                        },
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        ensure_mapping(bucket.id, bucket.provider_type, "RENDERED", [f"aws_s3_bucket.{label}"], "Rendered as S3 bucket with public access blocked and AES256 encryption.")
+        derive("aws_s3_bucket_server_side_encryption_configuration", label, f"AES256 encryption for S3 bucket {label}.", "storage.tf")
 
     for queue in queues:
         label = _safe_label(queue.name)

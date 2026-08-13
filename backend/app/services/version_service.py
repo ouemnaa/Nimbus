@@ -22,3 +22,11 @@ class VersionService:
         if document is None:
             raise NotFoundError("Architecture version")
         return ArchitectureVersionResponse.from_document(document)
+
+    async def update_status(
+        self, version_id: ObjectId, status: str
+    ) -> ArchitectureVersionResponse:
+        document = await self.repository.set_status(version_id, status)
+        if document is None:
+            raise NotFoundError("Architecture version")
+        return ArchitectureVersionResponse.from_document(document)
