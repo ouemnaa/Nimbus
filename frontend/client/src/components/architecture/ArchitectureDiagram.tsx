@@ -148,7 +148,7 @@ export default function ArchitectureDiagram({ diagram, title }: ArchitectureDiag
           {error}
         </div>
       ) : (
-        <div className="relative flex-1 rounded-xl border dark:border-white/5 border-black/5 overflow-hidden dark:bg-black/20 bg-white/60 shadow-inner group-hover:border-primary/20 transition-colors">
+        <div className="relative flex-1 min-h-[400px] rounded-xl border dark:border-white/5 border-black/5 overflow-hidden dark:bg-black/20 bg-white/60 shadow-inner group-hover:border-primary/20 transition-colors">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(var(--primary),0.05)_0%,transparent_70%)] pointer-events-none" />
           <div
             className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
