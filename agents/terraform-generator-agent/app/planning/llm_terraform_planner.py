@@ -96,13 +96,41 @@ class LLMTerraformPlanner:
         llm: LLMProvider,
     ) -> tuple[TerraformResourcePlan, list[CoverageFinding]]:
         raw = run_awaitable(llm.complete(_prompt(architecture, reasoning)))
+        logger.info(
+            "llm_response_received=%s raw_response_length=%s",
+            True,
+            len(raw or ""),
+        )
         plan = self._parse_and_normalize(raw, architecture)
+        logger.info(
+            "planned_resource_count=%s planned_variable_count=%s architecture_resource_mapping_count=%s missing_inputs=%s warnings=%s",
+            len(plan.resources),
+            len(plan.variables),
+            len(plan.architecture_resource_mappings),
+            plan.missing_inputs,
+            plan.warnings,
+        )
         errors = self.coverage_validator.validate(architecture, plan)
         if not errors:
             return plan, []
 
         repaired_raw = run_awaitable(llm.complete(_repair_prompt(architecture, reasoning, plan, errors)))
+        logger.info(
+            "llm_response_received=%s raw_response_length=%s repair_attempt=%s",
+            True,
+            len(repaired_raw or ""),
+            1,
+        )
         repaired_plan = self._parse_and_normalize(repaired_raw, architecture)
+        logger.info(
+            "planned_resource_count=%s planned_variable_count=%s architecture_resource_mapping_count=%s missing_inputs=%s warnings=%s repair_attempt=%s",
+            len(repaired_plan.resources),
+            len(repaired_plan.variables),
+            len(repaired_plan.architecture_resource_mappings),
+            repaired_plan.missing_inputs,
+            repaired_plan.warnings,
+            1,
+        )
         repaired_errors = self.coverage_validator.validate(architecture, repaired_plan)
         if repaired_errors:
             repaired_plan.warnings.append("Coverage validator found remaining gaps after one repair retry.")
@@ -111,10 +139,12 @@ class LLMTerraformPlanner:
 
     def _parse_and_normalize(self, raw: str, architecture: NormalizedArchitecture) -> TerraformResourcePlan:
         text = _extract_json_text(raw)
+        logger.info("json_extraction_succeeded=%s extracted_response_length=%s", bool(text), len(text or ""))
         try:
             data = json.loads(text)
         except Exception as exc:
             logger.warning("Planner JSON parse failed: %s", type(exc).__name__)
+            logger.warning("planner_parse_error=%s", f"{type(exc).__name__}: {exc}")
             raise ValueError(f"Planner returned invalid JSON: {type(exc).__name__}") from exc
         data = _normalize_plan_data(data, architecture)
         return TerraformResourcePlan.model_validate(data)

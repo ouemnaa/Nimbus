@@ -359,6 +359,40 @@ class TerraformGeneratorService:
                 error=f"LLM planner failed: {type(exc).__name__}: {exc}",
             )
 
+        if not resource_plan.resources:
+            logger.error(
+                "planner_empty_plan architecture_id=%s planned_resource_count=%s planned_variable_count=%s architecture_resource_mapping_count=%s missing_inputs=%s warnings=%s",
+                normalized.architecture_id,
+                len(resource_plan.resources),
+                len(resource_plan.variables),
+                len(resource_plan.architecture_resource_mappings),
+                resource_plan.missing_inputs,
+                resource_plan.warnings,
+            )
+            return GenerationResponse(
+                generation_status="FAILED",
+                generation_mode="FAILED",
+                trusted=False,
+                requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
+                draft_pattern_guess=_guess_draft_pattern(normalized),
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+                runtime_risks=resource_plan.runtime_risks,
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
+                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                reasoning=reasoning.model_dump(),
+                metadata=GenerationMetadata(**metadata_base),
+                error="LLM planner returned an empty TerraformResourcePlan",
+            )
+
         try:
             rendered_files = self.generic_renderer.render(resource_plan)
             sanitized_files = [
@@ -394,6 +428,44 @@ class TerraformGeneratorService:
                 coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
                 metadata=GenerationMetadata(**metadata_base),
                 error=str(exc),
+            )
+
+        rendered_file_names = [artifact.path for artifact in sanitized_files]
+        logger.info(
+            "rendered_file_names=%s rendered_file_count=%s rendered_resource_count=%s",
+            rendered_file_names,
+            len(sanitized_files),
+            len(resource_plan.resources),
+        )
+
+        if _is_shell_only_render(sanitized_files):
+            logger.error(
+                "renderer_shell_only_output architecture_id=%s rendered_file_names=%s",
+                normalized.architecture_id,
+                rendered_file_names,
+            )
+            return GenerationResponse(
+                generation_status="FAILED",
+                generation_mode="FAILED",
+                trusted=False,
+                requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
+                draft_pattern_guess=_guess_draft_pattern(normalized),
+                supported_resources=sorted(set(arch_validation.supported_resources)),
+                unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+                runtime_risks=resource_plan.runtime_risks,
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
+                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
+                reasoning=reasoning.model_dump(),
+                metadata=GenerationMetadata(**metadata_base),
+                error="Generic renderer produced only shell files; no infrastructure resources were rendered.",
             )
 
         draft_artifacts = sanitized_files
@@ -570,6 +642,12 @@ def _merge_unique_lists(*lists: list[str]) -> list[str]:
                 seen.add(item)
                 merged.append(item)
     return merged
+
+
+def _is_shell_only_render(artifacts: list[FileArtifact]) -> bool:
+    names = {artifact.path for artifact in artifacts}
+    shell_files = {"versions.tf", "providers.tf", "README.generated.md"}
+    return bool(names) and names.issubset(shell_files)
 
 
 # ---------------------------------------------------------------------------

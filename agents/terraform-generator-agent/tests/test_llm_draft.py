@@ -309,3 +309,94 @@ def test_duplicate_warnings_are_removed_from_response(tmp_path) -> None:
         assert len(res.warnings) == len(set(res.warnings))
     finally:
         gs.create_provider = orig_create
+
+
+def test_empty_planned_resources_fail_loudly(tmp_path) -> None:
+    settings = _settings(tmp_path, enabled=True)
+    svc = _generator(settings)
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+
+    import app.services.generator_service as gs
+    orig_create = gs.create_provider
+    orig_create_plan = svc.llm_planner.create_plan
+    gs.create_provider = lambda s: mock_llm
+    svc.llm_planner.create_plan = lambda *_args, **_kwargs: (
+        TerraformResourcePlan.model_validate(
+            {
+                "draft_pattern_name": "unsupported_architecture_generic",
+                "cloud_provider": "AWS",
+                "terraform_version": ">= 1.5.0",
+                "required_providers": [{"name": "aws", "source": "hashicorp/aws", "version": "~> 5.0"}],
+                "variables": [{"name": "aws_region", "type": "string"}],
+                "resources": [],
+                "architecture_resource_mappings": [
+                    {
+                        "architecture_resource_id": "api-gateway",
+                        "provider_type": "aws_apigatewayv2_api",
+                        "mapping_status": "UNSUPPORTED",
+                        "terraform_addresses": [],
+                    }
+                ],
+            }
+        ),
+        [],
+    )
+    try:
+        res = svc.generate(_unsupported_arch())
+        assert res.generation_status == "FAILED"
+        assert res.error == "LLM planner returned an empty TerraformResourcePlan"
+    finally:
+        gs.create_provider = orig_create
+        svc.llm_planner.create_plan = orig_create_plan
+
+
+def test_shell_only_render_fails_loudly(tmp_path) -> None:
+    settings = _settings(tmp_path, enabled=True)
+    svc = _generator(settings)
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(return_value=json.dumps({
+        "draft_pattern_name": "serverless_http_api_lambda_external_db",
+        "required_providers": [{"name": "aws", "source": "hashicorp/aws", "version": "~> 5.0"}],
+        "variables": [{"name": "aws_region", "type": "string"}],
+        "resources": [],
+        "architecture_resource_mappings": [
+            {
+                "architecture_resource_id": "api-gateway",
+                "provider_type": "aws_apigatewayv2_api",
+                "mapping_status": "UNSUPPORTED",
+                "terraform_addresses": [],
+            },
+            {
+                "architecture_resource_id": "central-backend",
+                "provider_type": "aws_lambda_function",
+                "mapping_status": "NEEDS_INPUT",
+                "terraform_addresses": [],
+            },
+            {
+                "architecture_resource_id": "supabase",
+                "provider_type": "external_supabase",
+                "mapping_status": "EXTERNAL",
+                "terraform_addresses": [],
+            },
+        ],
+        "warnings": [],
+    }))
+
+    import app.services.generator_service as gs
+    orig_create = gs.create_provider
+    orig_render = svc.generic_renderer.render
+    gs.create_provider = lambda s: mock_llm
+    svc.generic_renderer.render = lambda plan: [
+        {"path": "versions.tf", "content": 'terraform {\n  required_version = ">= 1.5.0"\n}\n'},
+        {"path": "providers.tf", "content": 'provider "aws" {\n  region = var.aws_region\n}\n'},
+        {"path": "README.generated.md", "content": "# README\n"},
+    ]
+    try:
+        res = svc.generate(_unsupported_arch())
+        assert res.generation_status == "FAILED"
+        assert res.error == "Generic renderer produced only shell files; no infrastructure resources were rendered."
+    finally:
+        gs.create_provider = orig_create
+        svc.generic_renderer.render = orig_render
