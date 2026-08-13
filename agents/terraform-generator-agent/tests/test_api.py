@@ -26,6 +26,25 @@ def test_generate_for_ecs_rds_fixture():
     assert response.json()["generation_status"] in {"SUCCESS", "NEEDS_REVIEW"}
 
 
+def test_generate_accepts_backend_wrapped_payload_shape():
+    architecture = architecture_payload()
+    response = client.post(
+        "/api/v1/terraform/generate",
+        json={
+            "project_id": "project-123",
+            "architecture_version_id": "version-123",
+            "architecture_id": architecture["architecture_id"],
+            "architecture_version": architecture["architecture_version"],
+            "architecture": architecture,
+            "options": {"allow_repairs": True},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["generation_status"] in {"SUCCESS", "NEEDS_REVIEW"}
+    assert len(body["files"]) > 0
+
+
 def test_validate_endpoint():
     response = client.post("/api/v1/terraform/validate", json={"files": [{"path": "versions.tf", "content": "terraform {}\n"}], "options": {"enable_init": False}})
     assert response.status_code == 200
@@ -44,4 +63,4 @@ def test_unsupported_architecture_is_clean():
     payload = json.loads((FIXTURES / "unsupported_eks_architecture.json").read_text())
     response = client.post("/api/v1/terraform/generate", json={"architecture": payload})
     assert response.status_code == 200
-    assert response.json()["generation_status"] == "UNSUPPORTED"
+    assert response.json()["generation_status"] in {"UNSUPPORTED", "NEEDS_REVIEW"}

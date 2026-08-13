@@ -9,7 +9,6 @@ When LLM_PROVIDER=none, returns review_status="SKIPPED".
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
@@ -19,6 +18,7 @@ from app.schemas.architecture import FileArtifact
 from app.schemas.plan import TerraformGenerationPlan
 from app.schemas.validation import ValidationResponse
 from app.services.architecture_normalizer import NormalizedArchitecture
+from app.utils.asyncio_utils import run_awaitable
 
 from .reviewer_prompt import SYSTEM_PROMPT, build_reviewer_prompt
 from .reviewer_schema import ReviewIssue, TerraformReviewResult
@@ -114,7 +114,7 @@ class TerraformReviewerAgent:
                     _safety_summary(safety_findings),
                 ),
             ])
-            raw = asyncio.get_event_loop().run_until_complete(llm.complete(prompt))
+            raw = run_awaitable(llm.complete(prompt))
             return _parse_review(raw)
         except Exception as exc:
             logger.warning("LLM reviewer call failed: %s", type(exc).__name__)

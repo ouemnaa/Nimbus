@@ -4,10 +4,13 @@ import logging
 from typing import Any
 
 from app.core.config import Settings
-from app.fallback.llm_draft_generator import LLMDraftTerraformGenerator
 from app.llm.factory import create_provider
+from app.planning.llm_terraform_planner import LLMTerraformPlanner
 from app.planning.plan_builder import TerraformPlanBuilder
+from app.planning.terraform_resource_plan_coverage_validator import CoverageFinding
+from app.planning.terraform_resource_plan_schema import TerraformResourcePlan
 from app.reasoning.terraform_reasoning_agent import TerraformReasoningAgent
+from app.rendering.generic_hcl_renderer import GenericHCLRenderer
 from app.renderers.common_files_renderer import CommonFilesRenderer
 from app.renderers.database_renderer import DatabaseRenderer
 from app.renderers.ecs_renderer import EcsRenderer
@@ -55,7 +58,8 @@ class TerraformGeneratorService:
         self.plan_builder = TerraformPlanBuilder()
         self.safety_checker = TerraformSafetyPolicyChecker()
         self.reviewer_agent = TerraformReviewerAgent()
-        self.draft_generator = LLMDraftTerraformGenerator()
+        self.llm_planner = LLMTerraformPlanner()
+        self.generic_renderer = GenericHCLRenderer()
 
     # ------------------------------------------------------------------
     # Public API
@@ -238,6 +242,7 @@ class TerraformGeneratorService:
             warnings=[*plan.warnings, *arch_validation.warnings],
             runtime_risks=plan.runtime_risks,
             validation_assertions=plan.validation_assertions,
+            validation=self._validate_generated_artifacts(file_artifacts).model_dump(),
             safety_findings=[f.model_dump() for f in safety_result.findings],
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
@@ -318,7 +323,7 @@ class TerraformGeneratorService:
                 reasoning=reasoning.model_dump(),
                 next_steps=[
                     "Create a PatternDefinition with required provider types, repair rules, and renderer templates.",
-                    "Or enable TERRAFORM_LLM_DRAFT_FALLBACK_ENABLED=true to generate an untrusted LLM draft.",
+                    "Or enable TERRAFORM_LLM_DRAFT_FALLBACK_ENABLED=true to generate an untrusted LLM-planned draft.",
                 ],
                 metadata=GenerationMetadata(**metadata_base),
                 error=(
@@ -329,60 +334,67 @@ class TerraformGeneratorService:
                 ),
             )
 
-        # LLM draft fallback
-        draft = self.draft_generator.generate_draft(normalized, reasoning, llm)
-        if draft.draft_status == "FAILED":
+        try:
+            resource_plan, coverage_findings = self.llm_planner.create_plan(normalized, reasoning, llm)
+        except Exception as exc:
             return GenerationResponse(
-                generation_status="FAILED",
-                generation_mode="LLM_DRAFT_UNSUPPORTED",
+                generation_status="UNSUPPORTED",
+                generation_mode="UNSUPPORTED",
                 trusted=False,
                 requires_human_review=True,
                 draft_pattern_guess=_guess_draft_pattern(normalized),
                 supported_resources=sorted(set(arch_validation.supported_resources)),
                 unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
-                assumptions=draft.assumptions,
-                required_inputs=draft.required_inputs,
-                warnings=draft.warnings,
-                validation_assertions=draft.validation_assertions,
+                required_inputs=reasoning.required_inputs,
+                warnings=[*arch_validation.warnings, "LLM planner could not produce a valid TerraformResourcePlan JSON."],
                 reasoning=reasoning.model_dump(),
                 metadata=GenerationMetadata(**metadata_base),
-                error=draft.error or "LLM draft generation failed.",
+                error=f"LLM planner failed: {type(exc).__name__}: {exc}",
             )
 
         try:
+            rendered_files = self.generic_renderer.render(resource_plan)
             sanitized_files = [
-                FileArtifact(path=validate_artifact_path(f.path), content=f.content)
-                for f in draft.files
+                FileArtifact(path=validate_artifact_path(f["path"]), content=f["content"])
+                for f in rendered_files
             ]
         except ValueError as exc:
             return GenerationResponse(
                 generation_status="FAILED",
-                generation_mode="LLM_DRAFT_UNSUPPORTED",
+                generation_mode="LLM_PLANNED_GENERIC_RENDER",
                 trusted=False,
                 requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
                 draft_pattern_guess=_guess_draft_pattern(normalized),
                 supported_resources=sorted(set(arch_validation.supported_resources)),
                 unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
-                assumptions=draft.assumptions,
-                required_inputs=draft.required_inputs,
-                warnings=[*draft.warnings, "Draft file paths failed sanitization."],
-                validation_assertions=draft.validation_assertions,
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, ["Rendered file paths failed sanitization."]),
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
                 reasoning=reasoning.model_dump(),
+                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
                 metadata=GenerationMetadata(**metadata_base),
                 error=str(exc),
             )
 
         draft_artifacts = sanitized_files
 
-        # Build a minimal plan for safety checking
         dummy_plan = TerraformGenerationPlan(
-            pattern_id="llm_draft",
-            generation_mode="LLM_DRAFT_UNSUPPORTED",
+            pattern_id="llm_planned_generic_render",
+            generation_mode="LLM_PLANNED_GENERIC_RENDER",
             project_name=options.project_name or self.settings.default_project_name,
             environment=options.environment or self.settings.default_environment,
             aws_region=options.aws_region or self.settings.default_aws_region,
             architecture_id=normalized.architecture_id,
             architecture_version=normalized.architecture_version,
+            warnings=resource_plan.warnings,
+            runtime_risks=resource_plan.runtime_risks,
+            validation_assertions=resource_plan.validation_assertions,
         )
         safety_result = self.safety_checker.check(draft_artifacts, dummy_plan)
         validation_result = self._validate_generated_artifacts(draft_artifacts)
@@ -400,52 +412,66 @@ class TerraformGeneratorService:
         if safety_result.has_critical:
             return GenerationResponse(
                 generation_status="FAILED",
-                generation_mode="LLM_DRAFT_UNSUPPORTED",
+                generation_mode="LLM_PLANNED_GENERIC_RENDER",
                 trusted=False,
                 requires_human_review=True,
+                draft_pattern_name=resource_plan.draft_pattern_name,
                 draft_pattern_guess=_guess_draft_pattern(normalized),
                 supported_resources=sorted(set(arch_validation.supported_resources)),
                 unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
-                assumptions=draft.assumptions,
-                required_inputs=draft.required_inputs,
-                warnings=[*draft.warnings, *arch_validation.warnings],
-                validation_assertions=draft.validation_assertions,
+                assumptions=resource_plan.assumptions,
+                required_inputs=reasoning.required_inputs,
+                missing_inputs=resource_plan.missing_inputs,
+                warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+                runtime_risks=resource_plan.runtime_risks,
+                validation_assertions=resource_plan.validation_assertions,
+                terraform_resource_plan=resource_plan.model_dump(mode="json"),
+                architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+                external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
                 validation=validation_result.model_dump(),
+                coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
                 safety_findings=[f.model_dump() for f in safety_result.findings],
                 reasoning=reasoning.model_dump(),
                 review=review_result.model_dump(),
                 next_steps=[
-                    "LLM draft fallback produced forbidden or secret-bearing content and was rejected.",
-                    "Add a deterministic pattern or correct the draft prompt/provider configuration.",
+                    "LLM-planned generic render produced forbidden or secret-bearing content and was rejected.",
+                    "Add a deterministic pattern or correct the planner prompt/provider configuration.",
                 ],
                 metadata=GenerationMetadata(**metadata_base),
-                error="Safety checker rejected the LLM draft output.",
+                error="Safety checker rejected the LLM-planned generic render output.",
             )
 
         metadata_base["generated_file_count"] = len(draft_artifacts)
         return GenerationResponse(
             generation_status="NEEDS_REVIEW",
-            generation_mode="LLM_DRAFT_UNSUPPORTED",
+            generation_mode="LLM_PLANNED_GENERIC_RENDER",
             trusted=False,
             requires_human_review=True,
+            draft_pattern_name=resource_plan.draft_pattern_name,
             draft_pattern_guess=_guess_draft_pattern(normalized),
             supported_resources=sorted(set(arch_validation.supported_resources)),
             unsupported_resources=sorted(set(arch_validation.unsupported_resources)),
             files=draft_artifacts,
-            assumptions=draft.assumptions,
-            required_inputs=draft.required_inputs,
-            warnings=[*draft.warnings, *arch_validation.warnings],
-            validation_assertions=draft.validation_assertions,
+            assumptions=resource_plan.assumptions,
+            required_inputs=reasoning.required_inputs,
+            missing_inputs=resource_plan.missing_inputs,
+            warnings=_merge_unique_lists(resource_plan.warnings, arch_validation.warnings),
+            runtime_risks=resource_plan.runtime_risks,
+            validation_assertions=resource_plan.validation_assertions,
+            terraform_resource_plan=resource_plan.model_dump(mode="json"),
+            architecture_resource_mappings=[m.model_dump(mode="json") for m in resource_plan.architecture_resource_mappings],
+            external_dependencies=[d.model_dump(mode="json") for d in resource_plan.external_dependencies],
             validation=validation_result.model_dump(),
+            coverage_findings=[CoverageFinding.model_validate(f.model_dump()) for f in coverage_findings],
             safety_findings=[f.model_dump() for f in safety_result.findings],
             reasoning=reasoning.model_dump(),
             review=review_result.model_dump(),
             next_steps=[
-                "Draft Terraform generated by LLM fallback. This architecture is not yet covered by a trusted deterministic Nimbus pattern. Review before use.",
+                "Draft Terraform generated from an LLM-planned resource plan. This architecture is not yet covered by a trusted Nimbus deterministic pattern. Review carefully before use.",
                 "Address validation, safety, and reviewer findings before any deploy or apply workflow.",
             ],
             metadata=GenerationMetadata(**metadata_base),
-            error=draft.explanation or None,
+            error=None,
         )
 
     def _validate_generated_artifacts(
@@ -460,19 +486,6 @@ class TerraformGeneratorService:
         from app.services.validator_service import TerraformValidatorService
 
         return TerraformValidatorService(self.settings)
-
-
-def _guess_draft_pattern(normalized: NormalizedArchitecture) -> str | None:
-    resource_types = {resource.provider_type for resource in normalized.resources}
-    if {"aws_apigatewayv2_api", "aws_lambda_function"} & resource_types:
-        if "external_supabase" in resource_types:
-            return "serverless_http_api_lambda_external_db"
-        return "serverless_http_api_lambda"
-    if "aws_eks_cluster" in resource_types:
-        return "kubernetes_cluster_workload"
-    if "external_supabase" in resource_types:
-        return "external_database_application_stack"
-    return None
 
     def _unsupported(
         self,
@@ -519,6 +532,19 @@ def _guess_draft_pattern(normalized: NormalizedArchitecture) -> str | None:
             metadata=GenerationMetadata(**metadata_base),
             error=error,
         )
+
+
+def _guess_draft_pattern(normalized: NormalizedArchitecture) -> str | None:
+    resource_types = {resource.provider_type for resource in normalized.resources}
+    if {"aws_apigatewayv2_api", "aws_lambda_function"} & resource_types:
+        if "external_supabase" in resource_types:
+            return "serverless_http_api_lambda_external_db"
+        return "serverless_http_api_lambda"
+    if "aws_eks_cluster" in resource_types:
+        return "kubernetes_cluster_workload"
+    if "external_supabase" in resource_types:
+        return "external_database_application_stack"
+    return None
 
 
 def _merge_unique_lists(*lists: list[str]) -> list[str]:

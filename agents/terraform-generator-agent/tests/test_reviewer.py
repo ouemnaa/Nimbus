@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.llm.base import LLMProvider
 from app.review.terraform_reviewer_agent import TerraformReviewerAgent
@@ -66,8 +65,7 @@ def test_reviewer_with_mocked_llm_passed() -> None:
     mock_llm.name = "mocked"
     
     # Create a resolved future to mock the async complete call
-    fut = asyncio.Future()
-    fut.set_result("""
+    mock_llm.complete = AsyncMock(return_value="""
     {
       "review_status": "PASSED",
       "trusted": true,
@@ -78,7 +76,6 @@ def test_reviewer_with_mocked_llm_passed() -> None:
       "deployability_score": 1.0
     }
     """)
-    mock_llm.complete = MagicMock(return_value=fut)
 
     normalized = normalize_architecture(_dummy_arch(), "us-east-1")
     result = _agent().review(
@@ -100,8 +97,7 @@ def test_reviewer_with_mocked_llm_needs_fix() -> None:
     mock_llm = MagicMock(spec=LLMProvider)
     mock_llm.name = "mocked"
     
-    fut = asyncio.Future()
-    fut.set_result("""
+    mock_llm.complete = AsyncMock(return_value="""
     {
       "review_status": "NEEDS_FIX",
       "trusted": false,
@@ -119,7 +115,6 @@ def test_reviewer_with_mocked_llm_needs_fix() -> None:
       "deployability_score": 0.2
     }
     """)
-    mock_llm.complete = MagicMock(return_value=fut)
 
     normalized = normalize_architecture(_dummy_arch(), "us-east-1")
     result = _agent().review(

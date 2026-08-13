@@ -14,7 +14,6 @@ Never auto-approved. Never becomes a deterministic pattern.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import PurePosixPath
@@ -22,6 +21,7 @@ from pathlib import PurePosixPath
 from app.llm.base import LLMProvider
 from app.reasoning.reasoning_schema import TerraformReasoningResult
 from app.services.architecture_normalizer import NormalizedArchitecture
+from app.utils.asyncio_utils import run_awaitable
 
 from .draft_prompt import ALLOWED_OUTPUT_PATHS, SYSTEM_PROMPT, build_draft_prompt
 from .draft_schema import LLMDraftFile, LLMDraftResult
@@ -106,7 +106,7 @@ class LLMDraftTerraformGenerator:
                     reasoning.unsupported_reasons,
                 ),
             ])
-            raw = asyncio.get_event_loop().run_until_complete(llm.complete(prompt))
+            raw = run_awaitable(llm.complete(prompt))
             result = _parse_draft(raw)
             result.warnings.insert(
                 0,

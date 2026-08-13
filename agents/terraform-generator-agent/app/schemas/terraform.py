@@ -30,6 +30,16 @@ class GenerationMetadata(BaseModel):
     draft_fallback_enabled: bool = False
 
 
+class CoverageFinding(BaseModel):
+    code: str
+    severity: str
+    architecture_resource_id: str | None = None
+    relationship_id: str | None = None
+    expected: str
+    actual: str
+    recommendation: str
+
+
 class GenerationResponse(BaseModel):
     generation_status: str
     generation_mode: str = "DETERMINISTIC_SUPPORTED"
@@ -37,6 +47,7 @@ class GenerationResponse(BaseModel):
     requires_human_review: bool = False
     target: str = "terraform"
     pattern_id: str | None = None
+    draft_pattern_name: str | None = None
     draft_pattern_guess: str | None = None
     deployment_strategy: str | None = None
     supported_resources: list[str] = Field(default_factory=list)
@@ -49,7 +60,12 @@ class GenerationResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     runtime_risks: list[str] = Field(default_factory=list)
     validation_assertions: list[str] = Field(default_factory=list)
+    terraform_resource_plan: dict[str, Any] | None = None
+    architecture_resource_mappings: list[dict[str, Any]] = Field(default_factory=list)
+    external_dependencies: list[dict[str, Any]] = Field(default_factory=list)
+    missing_inputs: list[str] = Field(default_factory=list)
     validation: dict[str, Any] | None = None
+    coverage_findings: list[CoverageFinding] = Field(default_factory=list)
     safety_findings: list[dict[str, Any]] = Field(default_factory=list)
     reasoning: dict[str, Any] | None = None
     review: dict[str, Any] | None = None

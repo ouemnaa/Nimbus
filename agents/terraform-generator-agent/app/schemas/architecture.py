@@ -90,7 +90,11 @@ class GenerateRequest(BaseModel):
     options: GenerateOptions = Field(default_factory=GenerateOptions)
 
     def canonical_architecture(self) -> CanonicalArchitecture:
-        payload = self.architecture or self.model_dump(exclude={"architecture", "options"}, exclude_none=True)
+        payload = dict(self.architecture or {})
+        if isinstance(payload.get("architecture"), dict):
+            payload = dict(payload["architecture"])
+        if not payload:
+            payload = self.model_dump(exclude={"architecture", "options"}, exclude_none=True)
         if not payload.get("architecture_id") and self.architecture_id:
             payload["architecture_id"] = self.architecture_id
         if not payload.get("architecture_version") and self.architecture_version:

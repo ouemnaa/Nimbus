@@ -159,7 +159,7 @@ export default function ProjectsPage() {
           >
             <div>
               <h1 className="bg-gradient-to-r from-text-primary via-primary to-text-secondary bg-clip-text text-4xl font-bold text-transparent">
-                Your Projects
+                YourMulti-Game Serverless Backend Architecture Projects
               </h1>
               <p className="mt-1 text-text-muted">
                 Reopen saved architectures and existing Terraform outputs

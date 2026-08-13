@@ -12,13 +12,13 @@ the detected pattern and architecture topology.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
 from app.llm.base import LLMProvider
 from app.schemas.plan import TerraformGenerationPlan
 from app.services.architecture_normalizer import NormalizedArchitecture, resource_cfg
+from app.utils.asyncio_utils import run_awaitable
 
 from .reasoning_prompt import SYSTEM_PROMPT, build_reasoning_prompt
 from .reasoning_schema import NetworkingStrategy, TerraformReasoningResult
@@ -280,7 +280,7 @@ class TerraformReasoningAgent:
             arch_json = architecture.model_dump_json(indent=2) if hasattr(architecture, "model_dump_json") else "{}"
             plan_json = current_plan.model_dump_json(indent=2) if current_plan else None
             prompt = f"{SYSTEM_PROMPT}\n\n{build_reasoning_prompt(arch_json, detected_pattern_id, supported_patterns, plan_json)}"
-            raw = asyncio.get_event_loop().run_until_complete(llm.complete(prompt))
+            raw = run_awaitable(llm.complete(prompt))
             result = _parse_llm_reasoning(raw, detected_pattern_id)
             if result.reasoning_status == "FAILED":
                 logger.info("LLM reasoning failed to parse — falling back to deterministic rules.")
