@@ -156,6 +156,11 @@ class GenericHCLRenderer:
                 lines.append(f"{pad}{value.type} {{")
                 lines.extend(self._render_body(value.body, indent + 2))
                 lines.append(f"{pad}}}")
+            elif value.kind == "list" and isinstance(value.items, list) and value.items and all(item.kind == "block" for item in value.items):
+                for item in value.items:
+                    lines.append(f"{pad}{item.type} {{")
+                    lines.extend(self._render_body(item.body, indent + 2))
+                    lines.append(f"{pad}}}")
             else:
                 lines.append(f"{pad}{key} = {render_hcl_value(value, indent)}")
         return lines

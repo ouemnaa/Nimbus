@@ -55,10 +55,14 @@ class InfrastructureCapabilityExtractor:
             else:
                 deployable_ids.append(resource.id)
 
-            if provider_type in {"aws_apigatewayv2_api", "aws_lb", "aws_cloudfront_distribution"}:
+            if provider_type in {"aws_lb", "aws_cloudfront_distribution"}:
                 add("PUBLIC_HTTP_ENTRYPOINT", resource.id)
-            if provider_type == "aws_apigatewayv2_api" and str(resource.configuration.get("protocol_type", "")).upper() == "WEBSOCKET":
-                add("REALTIME_CONNECTIONS", resource.id)
+            if provider_type == "aws_apigatewayv2_api":
+                protocol = str(resource.configuration.get("protocol_type", "")).upper()
+                if protocol == "WEBSOCKET":
+                    add("REALTIME_CONNECTIONS", resource.id)
+                else:
+                    add("PUBLIC_HTTP_ENTRYPOINT", resource.id)
             if provider_type == "aws_sqs_queue":
                 add("ASYNC_QUEUE", resource.id)
             if provider_type in {"aws_lambda_function", "aws_ecs_service"} and any(token in name for token in ("worker", "job", "processor", "consumer")):

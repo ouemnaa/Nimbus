@@ -330,10 +330,6 @@ export default function ProjectsPage() {
 
               {totalPages > 1 ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/50 bg-bg-surface-soft/60 px-4 py-3">
-                  <p className="text-sm text-text-muted">
-                    Use pagination to browse older saved projects without
-                    loading a huge wall of cards.
-                  </p>
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"

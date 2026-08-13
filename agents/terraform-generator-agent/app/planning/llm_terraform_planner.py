@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+import ast
 import json
 import logging
 
@@ -342,6 +343,9 @@ def _coerce_hcl_value(value):
         return {"kind": "literal", "value": value}
     if isinstance(value, str):
         stripped = value.strip()
+        parsed = _try_parse_structure_literal(stripped)
+        if parsed is not None:
+            return _coerce_hcl_value(parsed)
         if stripped.startswith("${") and stripped.endswith("}"):
             return {"kind": "expr", "value": stripped[2:-1]}
         if any(
@@ -354,6 +358,17 @@ def _coerce_hcl_value(value):
             return {"kind": "expr", "value": stripped}
         return {"kind": "literal", "value": value}
     return {"kind": "literal", "value": str(value)}
+
+
+def _try_parse_structure_literal(text: str):
+    if not text:
+        return None
+    if (text.startswith("[") and text.endswith("]")) or (text.startswith("{") and text.endswith("}")):
+        try:
+            return ast.literal_eval(text)
+        except Exception:
+            return None
+    return None
 
 
 def _default_file_for_resource_type(terraform_type: str, requested_file: str) -> str:
@@ -481,7 +496,13 @@ def _ensure_capability_coverage(
         default={"kind": "literal", "value": "development"},
         required=True,
     )
-    ensure_local("name_prefix", {"kind": "expr", "value": 'format("%s-%s", var.project_name, var.environment)'})
+    ensure_local("project_slug_raw", {"kind": "expr", "value": 'regexreplace(lower(var.project_name), "[^a-z0-9-]", "-")'})
+    ensure_local("project_slug", {"kind": "expr", "value": 'trim(regexreplace(local.project_slug_raw, "-+", "-"), "-")'})
+    ensure_local("environment_slug_raw", {"kind": "expr", "value": 'regexreplace(lower(var.environment), "[^a-z0-9-]", "-")'})
+    ensure_local("environment_slug", {"kind": "expr", "value": 'trim(regexreplace(local.environment_slug_raw, "-+", "-"), "-")'})
+    ensure_local("short_project_slug", {"kind": "expr", "value": 'substr(local.project_slug != "" ? local.project_slug : "nimbus", 0, 16)'})
+    ensure_local("short_environment_slug", {"kind": "expr", "value": 'substr(local.environment_slug != "" ? local.environment_slug : "dev", 0, 7)'})
+    ensure_local("name_prefix", {"kind": "expr", "value": 'substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)'})
     add_data_source({"terraform_type": "aws_caller_identity", "name": "current", "file": "providers.tf", "body": {}})
 
     lambdas = [resource for resource in architecture.resources if resource.provider_type == "aws_lambda_function"]
@@ -576,14 +597,36 @@ def _ensure_capability_coverage(
         derive("aws_iam_role_policy", "lambda_secrets_access", "Allow Lambda to read external service secret.", "iam.tf")
         missing_inputs.extend(["supabase_url", "supabase_service_role_key"])
 
+    if dynamo_tables and lambdas:
+        resource_arns = ", ".join(f"aws_dynamodb_table.{_safe_label(item.name)}.arn" for item in dynamo_tables)
+        add_resource(
+            {
+                "terraform_type": "aws_iam_role_policy",
+                "name": "lambda_dynamodb_access",
+                "file": "iam.tf",
+                "body": {
+                    "name": {"kind": "expr", "value": 'format("%s-dynamodb-access", local.name_prefix)'},
+                    "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.id"},
+                    "policy": {
+                        "kind": "expr",
+                        "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"], Resource = [{resource_arns}]}}]}})',
+                    },
+                },
+            }
+        )
+        derive("aws_iam_role_policy", "lambda_dynamodb_access", "Least-privilege DynamoDB access for Lambda.", "iam.tf")
+
     for api in apis:
-        api_name = _safe_label(api.name)
+        protocol = str(api.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
+        api_name = "websocket_api" if protocol == "WEBSOCKET" else "http_api"
         api_body = {
             "name": {"kind": "expr", "value": f'format("%s-{api_name}", local.name_prefix)'},
-            "protocol_type": {"kind": "literal", "value": str(api.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"},
+            "protocol_type": {"kind": "literal", "value": protocol},
         }
+        if protocol == "WEBSOCKET":
+            api_body["route_selection_expression"] = {"kind": "literal", "value": "$request.body.action"}
         cors = api.configuration.get("cors_configuration")
-        if isinstance(cors, dict) and cors:
+        if protocol != "WEBSOCKET" and isinstance(cors, dict) and cors:
             api_body["cors_configuration"] = {
                 "kind": "block",
                 "type": "cors_configuration",
@@ -604,7 +647,7 @@ def _ensure_capability_coverage(
                 "name": "default",
                 "file": "api_gateway.tf",
                 "body": {
-                    "api_id": {"kind": "expr", "value": "aws_apigatewayv2_api.http_api.id"},
+                    "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
                     "name": {"kind": "literal", "value": "$default"},
                     "auto_deploy": {"kind": "literal", "value": True},
                 },
@@ -614,15 +657,35 @@ def _ensure_capability_coverage(
             api.id,
             api.provider_type,
             "RENDERED",
-            ["aws_apigatewayv2_api.http_api"],
+            [f"aws_apigatewayv2_api.{api_name}"],
             "Rendered as API Gateway API plus supporting stage and route wiring.",
         )
         derive("aws_apigatewayv2_stage", "default", "Expose the HTTP API with auto-deploy stage.", "api_gateway.tf")
+        output_name = "websocket_api_endpoint" if protocol == "WEBSOCKET" else "api_endpoint"
+        output_description = "WebSocket API endpoint." if protocol == "WEBSOCKET" else "HTTP API endpoint."
         ensure_output(
-            "api_endpoint",
-            description="HTTP API endpoint.",
-            value={"kind": "expr", "value": "aws_apigatewayv2_api.http_api.api_endpoint"},
+            output_name,
+            description=output_description,
+            value={"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.api_endpoint"},
         )
+
+        if protocol == "WEBSOCKET" and lambdas:
+            add_resource(
+                {
+                    "terraform_type": "aws_iam_role_policy",
+                    "name": "lambda_manage_websocket_connections",
+                    "file": "iam.tf",
+                    "body": {
+                        "name": {"kind": "expr", "value": 'format("%s-websocket-connections", local.name_prefix)'},
+                        "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.id"},
+                        "policy": {
+                            "kind": "expr",
+                            "value": f'jsonencode({{Version = "2012-10-17", Statement = [{{Effect = "Allow", Action = ["execute-api:ManageConnections"], Resource = format("%s/*", aws_apigatewayv2_api.{api_name}.execution_arn)}}]}})',
+                        },
+                    },
+                }
+            )
+            derive("aws_iam_role_policy", "lambda_manage_websocket_connections", "Allow Lambda to manage WebSocket connections.", "iam.tf")
 
     for lambda_resource in lambdas:
         label = _safe_label(lambda_resource.name)
@@ -706,32 +769,44 @@ def _ensure_capability_coverage(
             continue
         if source.provider_type == "aws_apigatewayv2_api" and target.provider_type == "aws_lambda_function":
             label = _safe_label(target.name)
-            route_key = _route_key_from_label(str(relation.get("label", ""))) or f"ANY /{label}/{{proxy+}}"
+            protocol = str(source.configuration.get("protocol_type", "HTTP")).upper() or "HTTP"
+            api_name = "websocket_api" if protocol == "WEBSOCKET" else "http_api"
+            route_name = f"{label}_{_safe_route_label(str(relation.get('label', 'route')))}" if protocol == "WEBSOCKET" else label
+            route_key = (
+                _websocket_route_key_from_label(str(relation.get("label", "")))
+                if protocol == "WEBSOCKET"
+                else _route_key_from_label(str(relation.get("label", "")))
+            )
+            if protocol != "WEBSOCKET" and route_key is None:
+                route_key = f"ANY /{label}/{{proxy+}}"
+            if route_key is None:
+                continue
             add_resource(
                 {
                     "terraform_type": "aws_apigatewayv2_integration",
-                    "name": f"{label}_integration",
+                    "name": f"{route_name}_integration",
                     "file": "api_gateway.tf",
                     "body": {
-                        "api_id": {"kind": "expr", "value": "aws_apigatewayv2_api.http_api.id"},
+                        "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
                         "integration_type": {"kind": "literal", "value": "AWS_PROXY"},
                         "integration_uri": {"kind": "expr", "value": f"aws_lambda_function.{label}.invoke_arn"},
-                        "integration_method": {"kind": "literal", "value": "POST"},
                         "payload_format_version": {"kind": "literal", "value": "2.0"},
                     },
                 }
             )
+            if protocol != "WEBSOCKET":
+                resources[-1]["body"]["integration_method"] = {"kind": "literal", "value": "POST"}
             add_resource(
                 {
                     "terraform_type": "aws_apigatewayv2_route",
-                    "name": f"{label}_route",
+                    "name": f"{route_name}_route",
                     "file": "api_gateway.tf",
                     "body": {
-                        "api_id": {"kind": "expr", "value": "aws_apigatewayv2_api.http_api.id"},
+                        "api_id": {"kind": "expr", "value": f"aws_apigatewayv2_api.{api_name}.id"},
                         "route_key": {"kind": "literal", "value": route_key},
                         "target": {
                             "kind": "expr",
-                            "value": f'"integrations/${{aws_apigatewayv2_integration.{label}_integration.id}}"',
+                            "value": f'"integrations/${{aws_apigatewayv2_integration.{route_name}_integration.id}}"',
                         },
                     },
                 }
@@ -739,20 +814,20 @@ def _ensure_capability_coverage(
             add_resource(
                 {
                     "terraform_type": "aws_lambda_permission",
-                    "name": f"allow_api_gateway_{label}",
+                    "name": f"allow_api_gateway_{route_name}",
                     "file": "lambda.tf",
                     "body": {
-                        "statement_id": {"kind": "literal", "value": f"AllowExecutionFromApiGateway{label.title().replace('_', '')}"},
+                        "statement_id": {"kind": "literal", "value": f"AllowExecutionFromApiGateway{route_name.title().replace('_', '')}"},
                         "action": {"kind": "literal", "value": "lambda:InvokeFunction"},
                         "function_name": {"kind": "expr", "value": f"aws_lambda_function.{label}.function_name"},
                         "principal": {"kind": "literal", "value": "apigateway.amazonaws.com"},
-                        "source_arn": {"kind": "expr", "value": 'format("%s/*/*", aws_apigatewayv2_api.http_api.execution_arn)'},
+                        "source_arn": {"kind": "expr", "value": f'format("%s/*", aws_apigatewayv2_api.{api_name}.execution_arn)'},
                     },
                 }
             )
-            derive("aws_apigatewayv2_integration", f"{label}_integration", f"Wire API Gateway to Lambda {label}.", "api_gateway.tf")
-            derive("aws_apigatewayv2_route", f"{label}_route", f"Route traffic to Lambda {label}.", "api_gateway.tf")
-            derive("aws_lambda_permission", f"allow_api_gateway_{label}", f"Allow API Gateway to invoke Lambda {label}.", "lambda.tf")
+            derive("aws_apigatewayv2_integration", f"{route_name}_integration", f"Wire API Gateway to Lambda {label}.", "api_gateway.tf")
+            derive("aws_apigatewayv2_route", f"{route_name}_route", f"Route traffic to Lambda {label}.", "api_gateway.tf")
+            derive("aws_lambda_permission", f"allow_api_gateway_{route_name}", f"Allow API Gateway to invoke Lambda {label}.", "lambda.tf")
             validation_assertions.append(f"Relationship {relation.get('id') or relation_index} should render API Gateway route, integration, and Lambda permission.")
 
     for bucket in s3_buckets:
@@ -801,6 +876,9 @@ def _ensure_capability_coverage(
     for table in dynamo_tables:
         label = _safe_label(table.name)
         hash_key = str(table.configuration.get("hash_key", "id"))
+        attributes = table.configuration.get("attribute") or table.configuration.get("attributes") or [{"name": hash_key, "type": str(table.configuration.get("hash_key_type", "S"))}]
+        gsi = table.configuration.get("global_secondary_index") or table.configuration.get("global_secondary_indexes") or []
+        ttl = table.configuration.get("ttl")
         add_resource(
             {
                 "terraform_type": "aws_dynamodb_table",
@@ -811,17 +889,14 @@ def _ensure_capability_coverage(
                     "name": {"kind": "expr", "value": f'format("%s-{label}", local.name_prefix)'},
                     "billing_mode": {"kind": "literal", "value": str(table.configuration.get("billing_mode", "PAY_PER_REQUEST"))},
                     "hash_key": {"kind": "literal", "value": hash_key},
-                    "attribute": {
-                        "kind": "block",
-                        "type": "attribute",
-                        "body": {
-                            "name": {"kind": "literal", "value": hash_key},
-                            "type": {"kind": "literal", "value": str(table.configuration.get("hash_key_type", "S"))},
-                        },
-                    },
+                    "attribute": _as_repeated_block("attribute", attributes),
                 },
             }
         )
+        if gsi:
+            resources[-1]["body"]["global_secondary_index"] = _as_repeated_block("global_secondary_index", gsi)
+        if ttl:
+            resources[-1]["body"]["ttl"] = _as_single_block("ttl", ttl)
         ensure_mapping(table.id, table.provider_type, "RENDERED", [f"aws_dynamodb_table.{label}"], "Rendered as DynamoDB table.")
 
     for resource in architecture.resources:
@@ -889,6 +964,9 @@ def _ensure_capability_coverage(
     data["missing_inputs"] = missing_inputs
     data["warnings"] = warnings
     data["validation_assertions"] = validation_assertions
+    _remove_broad_iam_attachments(data["resources"], data["warnings"])
+    _prune_api_resources_by_capabilities(data["resources"], capability_plan, data["warnings"])
+    _normalize_resource_shapes(data["resources"])
     return data
 
 
@@ -898,6 +976,24 @@ def _route_key_from_label(label: str) -> str | None:
     if "/api/games/*" in label:
         return "ANY /api/games/{proxy+}"
     return None
+
+
+def _websocket_route_key_from_label(label: str) -> str | None:
+    text = label.strip()
+    if not text:
+        return None
+    if any(token in text for token in ("/api/", "{proxy+}")):
+        return None
+    lowered = text.lower()
+    for reserved in ("$connect", "$disconnect", "$default"):
+        if reserved in lowered:
+            return reserved
+    return text.split()[-1] if " " in text else text
+
+
+def _safe_route_label(value: str) -> str:
+    text = _safe_label(value)
+    return text or "route"
 
 
 def _safe_label(value: str) -> str:
@@ -913,3 +1009,156 @@ def _dedupe_strings(items: list[str]) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+RESOURCE_FIELD_SCHEMAS = {
+    "aws_dynamodb_table": {
+        "attribute": "repeated_block",
+        "global_secondary_index": "repeated_block",
+        "local_secondary_index": "repeated_block",
+        "ttl": "singleton_block",
+    },
+    "aws_lambda_function": {
+        "architectures": "list_attribute",
+        "environment": "singleton_block",
+        "vpc_config": "singleton_block",
+        "dead_letter_config": "singleton_block",
+        "tracing_config": "singleton_block",
+    },
+    "aws_apigatewayv2_api": {
+        "cors_configuration": "singleton_block",
+    },
+}
+
+
+def _normalize_resource_shapes(resources: list[dict]) -> None:
+    seen_log_groups: set[str] = set()
+    unique_resources: list[dict] = []
+    for resource in resources:
+        if resource.get("terraform_type") == "aws_cloudwatch_log_group":
+            address = f"{resource.get('terraform_type')}.{resource.get('name')}"
+            if address in seen_log_groups:
+                continue
+            seen_log_groups.add(address)
+        schema = RESOURCE_FIELD_SCHEMAS.get(resource.get("terraform_type"), {})
+        body = resource.get("body", {})
+        if isinstance(body, dict):
+            for field, field_type in schema.items():
+                if field not in body:
+                    continue
+                body[field] = _normalize_field_value(field, body[field], field_type)
+        unique_resources.append(resource)
+    resources[:] = unique_resources
+
+
+def _normalize_field_value(field: str, value, field_type: str):
+    hcl = _coerce_hcl_value(value)
+    parsed = _extract_plain_value(hcl)
+    if field_type == "list_attribute":
+        if isinstance(parsed, list):
+            return {"kind": "list", "items": [_coerce_hcl_value(item) for item in parsed]}
+        return hcl
+    if field_type == "singleton_block":
+        if isinstance(parsed, dict):
+            return _as_single_block(field, parsed)
+        return hcl
+    if field_type == "repeated_block":
+        if isinstance(parsed, list):
+            return _as_repeated_block(field, parsed)
+        if isinstance(parsed, dict):
+            return _as_repeated_block(field, [parsed])
+        return hcl
+    return hcl
+
+
+def _extract_plain_value(value):
+    if isinstance(value, dict) and "kind" in value:
+        kind = value["kind"]
+        if kind == "literal":
+            return value.get("value")
+        if kind == "list":
+            return [_extract_plain_value(item) for item in value.get("items", [])]
+        if kind == "object":
+            return {key: _extract_plain_value(item) for key, item in value.get("items", {}).items()}
+        if kind == "block":
+            return {key: _extract_plain_value(item) for key, item in value.get("body", {}).items()}
+    return value
+
+
+def _as_single_block(block_type: str, body: dict) -> dict:
+    return {
+        "kind": "block",
+        "type": block_type,
+        "body": {key: _coerce_hcl_value(val) for key, val in body.items()},
+    }
+
+
+def _as_repeated_block(block_type: str, items: list[dict]) -> dict:
+    return {
+        "kind": "list",
+        "items": [
+            {
+                "kind": "block",
+                "type": block_type,
+                "body": {key: _coerce_hcl_value(val) for key, val in item.items()},
+            }
+            for item in items
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _remove_broad_iam_attachments(resources: list[dict], warnings: list[str]) -> None:
+    broad_policy_arns = {
+        "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess",
+        "arn:aws:iam::aws:policy/AmazonAPIGatewayInvokeFullAccess",
+    }
+    filtered: list[dict] = []
+    removed = False
+    for resource in resources:
+        if resource.get("terraform_type") == "aws_iam_role_policy_attachment":
+            policy = resource.get("body", {}).get("policy_arn")
+            policy_value = _extract_plain_value(policy)
+            if policy_value in broad_policy_arns:
+                removed = True
+                continue
+        filtered.append(resource)
+    if removed:
+        warnings.append("Removed broad managed IAM policy attachments and replaced them with least-privilege inline policies where possible.")
+    resources[:] = filtered
+
+
+def _prune_api_resources_by_capabilities(
+    resources: list[dict],
+    capability_plan: InfrastructureCapabilityPlan,
+    warnings: list[str],
+) -> None:
+    capability_types = {capability.capability_type for capability in capability_plan.capabilities}
+    has_http = "PUBLIC_HTTP_ENTRYPOINT" in capability_types
+    has_websocket = "REALTIME_CONNECTIONS" in capability_types
+    if not has_websocket:
+        return
+
+    filtered: list[dict] = []
+    removed = False
+    for resource in resources:
+        tf_type = resource.get("terraform_type")
+        name = str(resource.get("name", ""))
+        body = resource.get("body", {})
+        protocol = str(_extract_plain_value(body.get("protocol_type")) or "").upper()
+        route_key = str(_extract_plain_value(body.get("route_key")) or "")
+
+        if tf_type == "aws_apigatewayv2_api" and protocol == "HTTP" and not has_http:
+            removed = True
+            continue
+        if tf_type == "aws_apigatewayv2_route" and route_key.startswith("ANY /") and not has_http:
+            removed = True
+            continue
+        if tf_type in {"aws_apigatewayv2_integration", "aws_lambda_permission"} and "http" in name and not has_http:
+            removed = True
+            continue
+        filtered.append(resource)
+
+    if removed:
+        warnings.append("Removed HTTP API resources because the capability plan only required WebSocket real-time connections.")
+    resources[:] = filtered

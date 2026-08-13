@@ -71,6 +71,59 @@ def _multi_lambda_arch() -> CanonicalArchitecture:
     )
 
 
+def _websocket_lobby_arch() -> CanonicalArchitecture:
+    return CanonicalArchitecture.model_validate(
+        {
+            "architecture_id": "realtime-lobby",
+            "cloud": {"provider": "aws", "region": "us-east-1"},
+            "resources": [
+                {
+                    "id": "lobby-websocket-api",
+                    "name": "Lobby WebSocket API Gateway",
+                    "provider_type": "aws_apigatewayv2_api",
+                    "configuration": {"protocol_type": "WEBSOCKET"},
+                },
+                {
+                    "id": "lobby-controller",
+                    "name": "Lobby Controller Lambda",
+                    "provider_type": "aws_lambda_function",
+                    "configuration": {
+                        "runtime": "nodejs20.x",
+                        "memory_size": 512,
+                        "timeout": 30,
+                        "architectures": ["arm64"],
+                        "environment": {"variables": {"TABLE_NAME": "lobby"}},
+                    },
+                },
+                {
+                    "id": "lobby-table",
+                    "name": "Lobby State Table",
+                    "provider_type": "aws_dynamodb_table",
+                    "configuration": {
+                        "hash_key": "pk",
+                        "attribute": [
+                            {"name": "pk", "type": "S"},
+                            {"name": "gsi1pk", "type": "S"},
+                        ],
+                        "global_secondary_index": [
+                            {"name": "gsi1", "hash_key": "gsi1pk", "projection_type": "ALL"}
+                        ],
+                        "ttl": {"attribute_name": "ttl_expiry", "enabled": True},
+                    },
+                },
+            ],
+            "relationships": [
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "$connect"},
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "$disconnect"},
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "createLobby"},
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "joinLobby"},
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "leaveLobby"},
+                {"source_id": "lobby-websocket-api", "target_id": "lobby-controller", "label": "startGame"},
+            ],
+        }
+    )
+
+
 def _plan_json() -> str:
     return json.dumps(
         {
@@ -441,6 +494,166 @@ def test_too_abstract_plan_fails_loudly(tmp_path) -> None:
     finally:
         gs.create_provider = orig_create
         svc.llm_planner.create_plan = orig_create_plan
+
+
+def test_dynamodb_nested_blocks_render_as_hcl_blocks() -> None:
+    plan = TerraformResourcePlan.model_validate(
+        {
+            "draft_pattern_name": "generic",
+            "cloud_provider": "AWS",
+            "terraform_version": ">= 1.5.0",
+            "required_providers": [{"name": "aws", "source": "hashicorp/aws", "version": "~> 5.0"}],
+            "variables": [{"name": "aws_region", "type": "string"}],
+            "resources": [
+                {
+                    "terraform_type": "aws_dynamodb_table",
+                    "name": "lobby_state",
+                    "file": "compute.tf",
+                    "body": {
+                        "name": {"kind": "literal", "value": "lobby-state"},
+                        "billing_mode": {"kind": "literal", "value": "PAY_PER_REQUEST"},
+                        "hash_key": {"kind": "literal", "value": "pk"},
+                        "attribute": {
+                            "kind": "list",
+                            "items": [
+                                {"kind": "block", "type": "attribute", "body": {"name": {"kind": "literal", "value": "pk"}, "type": {"kind": "literal", "value": "S"}}},
+                                {"kind": "block", "type": "attribute", "body": {"name": {"kind": "literal", "value": "gsi1pk"}, "type": {"kind": "literal", "value": "S"}}},
+                            ],
+                        },
+                        "global_secondary_index": {
+                            "kind": "list",
+                            "items": [
+                                {"kind": "block", "type": "global_secondary_index", "body": {"name": {"kind": "literal", "value": "gsi1"}, "hash_key": {"kind": "literal", "value": "gsi1pk"}, "projection_type": {"kind": "literal", "value": "ALL"}}},
+                            ],
+                        },
+                        "ttl": {"kind": "block", "type": "ttl", "body": {"attribute_name": {"kind": "literal", "value": "ttl_expiry"}, "enabled": {"kind": "literal", "value": True}}},
+                    },
+                }
+            ],
+        }
+    )
+    compute_tf = {item["path"]: item["content"] for item in GenericHCLRenderer().render(plan)}["compute.tf"]
+    assert 'attribute {' in compute_tf
+    assert 'global_secondary_index {' in compute_tf
+    assert 'ttl {' in compute_tf
+    assert "attribute = " not in compute_tf
+    assert "global_secondary_index = " not in compute_tf
+
+
+def test_lambda_list_and_environment_render_correctly() -> None:
+    plan = TerraformResourcePlan.model_validate(
+        {
+            "draft_pattern_name": "generic",
+            "cloud_provider": "AWS",
+            "terraform_version": ">= 1.5.0",
+            "required_providers": [{"name": "aws", "source": "hashicorp/aws", "version": "~> 5.0"}],
+            "variables": [{"name": "aws_region", "type": "string"}],
+            "resources": [
+                {
+                    "terraform_type": "aws_lambda_function",
+                    "name": "lobby_controller",
+                    "file": "lambda.tf",
+                    "body": {
+                        "function_name": {"kind": "literal", "value": "lobby-controller"},
+                        "role": {"kind": "expr", "value": "aws_iam_role.lambda_execution_role.arn"},
+                        "runtime": {"kind": "literal", "value": "nodejs20.x"},
+                        "handler": {"kind": "literal", "value": "index.handler"},
+                        "filename": {"kind": "literal", "value": "bundle.zip"},
+                        "architectures": {"kind": "list", "items": [{"kind": "literal", "value": "arm64"}]},
+                        "environment": {"kind": "block", "type": "environment", "body": {"variables": {"kind": "object", "items": {"TABLE_NAME": {"kind": "literal", "value": "lobby"}}}}},
+                    },
+                }
+            ],
+        }
+    )
+    lambda_tf = {item["path"]: item["content"] for item in GenericHCLRenderer().render(plan)}["lambda.tf"]
+    assert 'architectures = [' in lambda_tf
+    assert '"arm64"' in lambda_tf
+    assert 'environment {' in lambda_tf
+    assert 'variables = {' in lambda_tf
+    assert "architectures = \"" not in lambda_tf
+
+
+def test_websocket_generation_avoids_http_routes_and_uses_least_privilege_iam(tmp_path) -> None:
+    settings = _settings(tmp_path, enabled=True)
+    svc = _generator(settings)
+    mock_llm = MagicMock(spec=LLMProvider)
+    mock_llm.name = "gemini"
+    mock_llm.complete = AsyncMock(
+        return_value=json.dumps(
+            {
+                "draft_pattern_name": "capability_planned_generic_architecture",
+                "resources": [
+                    {
+                        "terraform_type": "aws_apigatewayv2_api",
+                        "name": "http_api",
+                        "file": "api_gateway.tf",
+                        "body": {"name": "bad-http", "protocol_type": "HTTP"},
+                    },
+                    {
+                        "terraform_type": "aws_apigatewayv2_api",
+                        "name": "lobby_websocket_api_gateway",
+                        "file": "api_gateway.tf",
+                        "body": {"name": "good-websocket", "protocol_type": "WEBSOCKET"},
+                    },
+                    {
+                        "terraform_type": "aws_iam_role_policy_attachment",
+                        "name": "ddb_full",
+                        "file": "iam.tf",
+                        "body": {"role": "aws_iam_role.lambda_execution_role.name", "policy_arn": "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"},
+                    },
+                    {
+                        "terraform_type": "aws_iam_role_policy_attachment",
+                        "name": "apigw_full",
+                        "file": "iam.tf",
+                        "body": {"role": "aws_iam_role.lambda_execution_role.name", "policy_arn": "arn:aws:iam::aws:policy/AmazonAPIGatewayInvokeFullAccess"},
+                    },
+                    {
+                        "terraform_type": "aws_cloudwatch_log_group",
+                        "name": "lobby_controller_lambda",
+                        "file": "observability.tf",
+                        "body": {"name": "/aws/lambda/lobby-controller", "retention_in_days": 7},
+                    },
+                    {
+                        "terraform_type": "aws_cloudwatch_log_group",
+                        "name": "lobby_controller_lambda",
+                        "file": "observability.tf",
+                        "body": {"name": "/aws/lambda/lobby-controller", "retention_in_days": 7},
+                    },
+                ],
+                "architecture_resource_mappings": [
+                    {"architecture_resource_id": "lobby-websocket-api", "provider_type": "aws_apigatewayv2_api", "mapping_status": "RENDERED", "terraform_addresses": ["aws_apigatewayv2_api.lobby_websocket_api_gateway"]},
+                    {"architecture_resource_id": "lobby-controller", "provider_type": "aws_lambda_function", "mapping_status": "RENDERED", "terraform_addresses": ["aws_lambda_function.lobby_controller_lambda"]},
+                    {"architecture_resource_id": "lobby-table", "provider_type": "aws_dynamodb_table", "mapping_status": "RENDERED", "terraform_addresses": ["aws_dynamodb_table.lobby_state_table"]},
+                ],
+            }
+        )
+    )
+
+    import app.services.generator_service as gs
+    orig_create = gs.create_provider
+    gs.create_provider = lambda s: mock_llm
+    try:
+        res = svc.generate(_websocket_lobby_arch())
+        file_map = {item.path: item.content for item in res.files}
+        api_tf = file_map["api_gateway.tf"]
+        iam_tf = file_map["iam.tf"]
+        observability_tf = file_map["observability.tf"]
+        locals_tf = file_map["locals.tf"]
+
+        assert 'protocol_type = "WEBSOCKET"' in api_tf
+        assert 'route_key = "$connect"' in api_tf
+        assert 'route_key = "createLobby"' in api_tf
+        assert 'route_key = "ANY /' not in api_tf
+        assert 'AmazonDynamoDBFullAccess' not in iam_tf
+        assert 'AmazonAPIGatewayInvokeFullAccess' not in iam_tf
+        assert 'dynamodb:GetItem' in iam_tf
+        assert 'execute-api:ManageConnections' in iam_tf
+        assert observability_tf.count('resource "aws_cloudwatch_log_group"') == 1
+        assert 'short_project_slug' in locals_tf
+        assert 'name_prefix = substr("${local.short_project_slug}-${local.short_environment_slug}", 0, 24)' in locals_tf
+    finally:
+        gs.create_provider = orig_create
 
 
 def test_shell_only_render_fails_loudly(tmp_path) -> None:
